@@ -26,3 +26,17 @@ C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\o
 C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.dll
 C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.pdb
 C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.genruntimeconfig.cache
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.exe
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.deps.json
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.runtimeconfig.json
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.runtimeconfig.dev.json
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.dll
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.pdb
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.csproj.AssemblyReference.cache
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.AssemblyInfoInputs.cache
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.AssemblyInfo.cs
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.csproj.CoreCompileInputs.cache
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.dll
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.pdb
+C:\Users\lpillett\Desktop\DémosNFsport\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.genruntimeconfig.cache

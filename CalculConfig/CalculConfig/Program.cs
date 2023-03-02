@@ -32,7 +32,18 @@ namespace CalculConfig
         static void Main(string[] args)
         {
             //Retrieves the signals from the LSL file
-            string filesPath = @"C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\ScenariiOpenViBE\signals\";
+            string basisPath = Directory.GetCurrentDirectory();
+            //Console.WriteLine(basisPath);
+
+            //Retrieves the signals from the LSL file
+            string[] basisPathSplit = basisPath.Split('\\');
+            int indexOrigineFolder = Array.IndexOf(basisPathSplit, "DémosNFsport");
+            string[] originPath = new string[indexOrigineFolder + 1];
+            Array.Copy(basisPathSplit, originPath, indexOrigineFolder + 1);
+
+            string filesPath = String.Join('\\', originPath) + "\\ScenariiOpenViBE\\signals\\";
+            //Console.WriteLine(filesPath);
+
             using (var reader = new StreamReader(filesPath + "baseline.csv"))
             {
                 //Init the lists that will contain the SMR value

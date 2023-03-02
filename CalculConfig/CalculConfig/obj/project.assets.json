@@ -8,24 +8,19 @@
     ".NETCoreApp,Version=v3.1": []
   },
   "packageFolders": {
-    "C:\\Users\\leapi\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "C:\\Users\\lpillett\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\Post-doc INCIA\\Présentation & Conférences\\Sport Unlimitech 2021\\Programs\\CalculConfig\\CalculConfig\\CalculConfig.csproj",
+      "projectUniqueName": "C:\\Users\\lpillett\\Desktop\\DémosNFsport\\CalculConfig\\CalculConfig\\CalculConfig.csproj",
       "projectName": "CalculConfig",
-      "projectPath": "D:\\Post-doc INCIA\\Présentation & Conférences\\Sport Unlimitech 2021\\Programs\\CalculConfig\\CalculConfig\\CalculConfig.csproj",
-      "packagesPath": "C:\\Users\\leapi\\.nuget\\packages\\",
-      "outputPath": "D:\\Post-doc INCIA\\Présentation & Conférences\\Sport Unlimitech 2021\\Programs\\CalculConfig\\CalculConfig\\obj\\",
+      "projectPath": "C:\\Users\\lpillett\\Desktop\\DémosNFsport\\CalculConfig\\CalculConfig\\CalculConfig.csproj",
+      "packagesPath": "C:\\Users\\lpillett\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\lpillett\\Desktop\\DémosNFsport\\CalculConfig\\CalculConfig\\obj\\",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\leapi\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+        "C:\\Users\\lpillett\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
@@ -65,7 +60,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\5.0.400\\RuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\5.0.415\\RuntimeIdentifierGraph.json"
       }
     }
   }
