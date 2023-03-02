@@ -50,8 +50,21 @@ namespace Assets.LSL4Unity.Scripts.Examples
 
         private void Awake()
         {
+            //Retrieves the path to config file
+            string basisPath = Directory.GetCurrentDirectory();
+            Debug.Log(basisPath);
+
+            //Retrieves the signals from the LSL file
+            string[] basisPathSplit = basisPath.Split('\\');
+            int indexOrigineFolder = Array.IndexOf(basisPathSplit, "DémosNFsport");
+            string[] originPath = new string[indexOrigineFolder + 1];
+            Array.Copy(basisPathSplit, originPath, indexOrigineFolder + 1);
+
+            string filesPath = String.Join("\\", originPath) + "\\ScenariiOpenViBE\\signals\\";
+            Debug.Log(filesPath);
+
             //Retrieves the mean and SD variables from the current session
-            string[] lines = System.IO.File.ReadAllLines(@"C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\ScenariiOpenViBE\signals\config.txt");
+            string[] lines = System.IO.File.ReadAllLines(filesPath + "config.txt");
             mean = float.Parse(lines[1], System.Globalization.CultureInfo.InvariantCulture);
             SD = float.Parse(lines[3], System.Globalization.CultureInfo.InvariantCulture);
             //Display the retrieved mean and SD
