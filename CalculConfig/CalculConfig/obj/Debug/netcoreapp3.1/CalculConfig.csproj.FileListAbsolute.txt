@@ -1,0 +1,28 @@
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.exe
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.deps.json
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.runtimeconfig.json
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.runtimeconfig.dev.json
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.dll
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.pdb
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.AssemblyInfoInputs.cache
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.AssemblyInfo.cs
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.csproj.CoreCompileInputs.cache
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.dll
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.pdb
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.genruntimeconfig.cache
+C:\Users\leapi\source\repos\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.csproj.AssemblyReference.cache
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.exe
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.deps.json
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.runtimeconfig.json
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.runtimeconfig.dev.json
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.dll
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\bin\Debug\netcoreapp3.1\CalculConfig.pdb
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.csproj.AssemblyReference.cache
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.AssemblyInfoInputs.cache
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.AssemblyInfo.cs
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.csproj.CoreCompileInputs.cache
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.dll
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.pdb
+C:\Users\leapi\OneDrive\Bureau\Sport Unlimitech 2021\CalculConfig\CalculConfig\obj\Debug\netcoreapp3.1\CalculConfig.genruntimeconfig.cache
