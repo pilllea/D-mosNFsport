@@ -1,4 +1,3 @@
-
 function initialize(box)
 
 	dofile(box:get_config("${Path_Data}") .. "/plugins/stimulation/lua-stimulator-stim-codes.lua")

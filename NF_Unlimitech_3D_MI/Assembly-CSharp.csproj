@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <LangVersion>8.0</LangVersion>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -53,17 +53,18 @@
     <UnityVersion>2020.3.17f1</UnityVersion>
   </PropertyGroup>
   <ItemGroup>
-    <Analyzer Include="C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE\Extensions\Microsoft\Visual Studio Tools for Unity\Analyzers\Microsoft.Unity.Analyzers.dll" />
-  </ItemGroup>
-  <ItemGroup>
     <Compile Include="Assets\Scripts\Controller.cs" />
     <Compile Include="Assets\LSL4Unity\Scripts\Examples\ExampleFloatInlet.cs" />
-    <Compile Include="Assets\LSL4Unity\Scripts\BaseInlet.cs" />
     <Compile Include="Assets\LSL4Unity\Demos\StreamInfo.cs" />
+    <Compile Include="Assets\LSL4Unity\Scripts\ScriptOrder.cs" />
     <Compile Include="Assets\LSL4Unity\LSL.cs" />
+    <Compile Include="Assets\LSL4Unity\OV\Template\DoubleInlet.cs" />
+    <Compile Include="Assets\LSL4Unity\Scripts\Resolver.cs" />
     <Compile Include="Assets\LSL4Unity\Demos\CubeRotation.cs" />
     <Compile Include="Assets\LSL4Unity\Scripts\LSLTimeSync.cs" />
-    <Compile Include="Assets\LSL4Unity\Scripts\Resolver.cs" />
+    <Compile Include="Assets\LSL4Unity\OV\Defines.cs" />
+    <Compile Include="Assets\LSL4Unity\Scripts\BaseInlet.cs" />
+    <Compile Include="Assets\LSL4Unity\LSL2.cs" />
     <Compile Include="Assets\LSL4Unity\Demos\RandomMarker.cs" />
     <Compile Include="Assets\LSL4Unity\Scripts\Examples\TransformMapping.cs" />
     <Compile Include="Assets\LSL4Unity\Demos\LSLTransformDemoOutlet.cs" />
@@ -71,12 +72,17 @@
     <Compile Include="Assets\LSL4Unity\Scripts\LSLTransformOutlet.cs" />
     <Compile Include="Assets\LSL4Unity\Scripts\LSLOutlet.cs" />
     <Compile Include="Assets\LSL4Unity\Scripts\LSLCommon.cs" />
-    <Compile Include="Assets\LSL4Unity\Scripts\ScriptOrder.cs" />
     <Compile Include="Assets\Scripts\ArrowController.cs" />
     <Compile Include="Assets\LSL4Unity\Scripts\LSLTransformOutletSR.cs" />
     <Compile Include="Assets\LSL4Unity\Scripts\LSLMarkerStream.cs" />
+    <Compile Include="Assets\LSL4Unity\OV\Template\FloatInlet.cs" />
+    <Compile Include="Assets\LSL4Unity\OV\OVInlets.cs" />
+    <Compile Include="Assets\LSL4Unity\OV\Template\StimulationOutlet.cs" />
+    <Compile Include="Assets\LSL4Unity\OV\Template\StimulationInlet.cs" />
+    <Compile Include="Assets\LSL4Unity\OV\Template\MatrixInlet.cs" />
     <Compile Include="Assets\LSL4Unity\Scripts\Examples\DemoInletForFloatSamples.cs" />
     <Compile Include="Assets\LSL4Unity\Scripts\Examples\ScaleMapping.cs" />
+    <Compile Include="Assets\LSL4Unity\OV\OVOutlets.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

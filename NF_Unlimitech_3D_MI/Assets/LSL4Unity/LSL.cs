@@ -1,1228 +1,1394 @@
-﻿using System;
+﻿//-------------------------------------------------------------------------------------------------
+//
+// C# API for the lab streaming layer.
+//
+// The lab streaming layer provides a set of functions to make instrument data accessible in real time within a lab network.
+// From there, streams can be picked up by recording programs,
+//
+// The API covers two areas:
+// - The "push API" allows to create stream outlets and to push data (regular or irregular measurement
+//   time series, event data, coded audio/video frames, etc.) into them.
+// - The "pull API" allows to create stream inlets and read time-synched experiment data from them
+//   (for recording, viewing or experiment control).
+//
+//-------------------------------------------------------------------------------------------------
+
 using System.Runtime.InteropServices;
-using System.Collections;
+using IntPtr = System.IntPtr;
+using Exception = System.Exception;
+using SerializationInfo = System.Runtime.Serialization.SerializationInfo;
+using StreamingContext = System.Runtime.Serialization.StreamingContext;
 
-/**
-* C# API for the lab streaming layer.
-* 
-* The lab streaming layer provides a set of functions to make instrument data accessible 
-* in real time within a lab network. From there, streams can be picked up by recording programs, 
-* viewing programs or custom experiment applications that access data streams in real time.
-*
-* The API covers two areas:
-* - The "push API" allows to create stream outlets and to push data (regular or irregular measurement 
-*   time series, event data, coded audio/video frames, etc.) into them.
-* - The "pull API" allows to create stream inlets and read time-synched experiment data from them 
-*   (for recording, viewing or experiment control).
-*
-*/
-namespace LSL {
-
-public class liblsl
+namespace LSL4Unity
 {
-
-    /**
-    * Constant to indicate that a stream has variable sampling rate.
-    */
-    public const double IRREGULAR_RATE = 0.0;
-
-    /**
-    * Constant to indicate that a sample has the next successive time stamp.
-    * This is an optional optimization to transmit less data per sample.
-    * The stamp is then deduced from the preceding one according to the stream's sampling rate 
-    * (in the case of an irregular rate, the same time stamp as before will is assumed).
-    */
-    public const double DEDUCED_TIMESTAMP = -1.0;
-
-
-    /**
-    * A very large time duration (> 1 year) for timeout values.
-    * Note that significantly larger numbers can cause the timeout to be invalid on some operating systems (e.g., 32-bit UNIX).
-    */
-    public const double FOREVER = 32000000.0;
-
-    /**
-    * Data format of a channel (each transmitted sample holds an array of channels).
-    */
-    public enum channel_format_t : byte
-    {
-        cf_float32 = 1,     // For up to 24-bit precision measurements in the appropriate physical unit 
-        // (e.g., microvolts). Integers from -16777216 to 16777216 are represented accurately.
-        cf_double64 = 2,    // For universal numeric data as long as permitted by network & disk budget. 
-        // The largest representable integer is 53-bit.
-        cf_string = 3,      // For variable-length ASCII strings or data blobs, such as video frames,
-        // complex event descriptions, etc.
-        cf_int32 = 4,       // For high-rate digitized formats that require 32-bit precision. Depends critically on 
-        // meta-data to represent meaningful units. Useful for application event codes or other coded data.
-        cf_int16 = 5,       // For very high rate signals (40Khz+) or consumer-grade audio 
-        // (for professional audio float is recommended).
-        cf_int8 = 6,        // For binary signals or other coded data. 
-        // Not recommended for encoding string data.
-        cf_int64 = 7,       // For now only for future compatibility. Support for this type is not yet exposed in all languages. 
-        // Also, some builds of liblsl will not be able to send or receive data of this type.
-        cf_undefined = 0    // Can not be transmitted.
-    };
-
-    /**
-    * Protocol version.
-    * The major version is protocol_version() / 100;
-    * The minor version is protocol_version() % 100;
-    * Clients with different minor versions are protocol-compatible with each other 
-    * while clients with different major versions will refuse to work together.
-    */
-    public static int protocol_version() { return dll.lsl_protocol_version(); }
-
-    /**
-    * Version of the liblsl library.
-    * The major version is library_version() / 100;
-    * The minor version is library_version() % 100;
-    */
-    public static int library_version() { return dll.lsl_library_version(); }
-
-    /**
-    * Obtain a local system time stamp in seconds. The resolution is better than a millisecond.
-    * This reading can be used to assign time stamps to samples as they are being acquired. 
-    * If the "age" of a sample is known at a particular time (e.g., from USB transmission 
-    * delays), it can be used as an offset to local_clock() to obtain a better estimate of 
-    * when a sample was actually captured. See stream_outlet::push_sample() for a use case.
-    */
-    public static double local_clock() { return dll.lsl_local_clock(); }
-
-
-
-
-    // ==========================
-    // === Stream Declaration ===
-    // ==========================
-
-    /**
-    * The stream_info object stores the declaration of a data stream.
-    * Represents the following information:
-    *  a) stream data format (#channels, channel format)
-    *  b) core information (stream name, content type, sampling rate)
-    *  c) optional meta-data about the stream content (channel labels, measurement units, etc.)
-    *
-    * Whenever a program wants to provide a new stream on the lab network it will typically first 
-    * create a stream_info to describe its properties and then construct a stream_outlet with it to create
-    * the stream on the network. Recipients who discover the outlet can query the stream_info; it is also
-    * written to disk when recording the stream (playing a similar role as a file header).
-    */
-
-    public class StreamInfo
-    {
-        /**
-        * Construct a new StreamInfo object.
-        * Core stream information is specified here. Any remaining meta-data can be added later.
-        * @param name Name of the stream. Describes the device (or product series) that this stream makes available 
-        *             (for use by programs, experimenters or data analysts). Cannot be empty.
-        * @param type Content type of the stream. Please see https://github.com/sccn/xdf/wiki/Meta-Data (or web search for:
-        *             XDF meta-data) for pre-defined content-type names, but you can also make up your own.
-        *             The content type is the preferred way to find streams (as opposed to searching by name).
-        * @param channel_count Number of channels per sample. This stays constant for the lifetime of the stream.
-        * @param nominal_srate The sampling rate (in Hz) as advertised by the data source, if regular (otherwise set to IRREGULAR_RATE).
-        * @param channel_format Format/type of each channel. If your channels have different formats, consider supplying 
-        *                       multiple streams or use the largest type that can hold them all (such as cf_double64).
-        * @param source_id Unique identifier of the device or source of the data, if available (such as the serial number). 
-        *                  This is critical for system robustness since it allows recipients to recover from failure even after the 
-        *                  serving app, device or computer crashes (just by finding a stream with the same source id on the network again).
-        *                  Therefore, it is highly recommended to always try to provide whatever information can uniquely identify the data source itself.
-        */
-        public StreamInfo(string name, string type) { obj = dll.lsl_create_streaminfo(name, type, 1, IRREGULAR_RATE, channel_format_t.cf_float32, ""); }
-        public StreamInfo(string name, string type, int channel_count) { obj = dll.lsl_create_streaminfo(name, type, channel_count, IRREGULAR_RATE, channel_format_t.cf_float32, ""); }
-        public StreamInfo(string name, string type, int channel_count, double nominal_srate) { obj = dll.lsl_create_streaminfo(name, type, channel_count, nominal_srate, channel_format_t.cf_float32, ""); }
-        public StreamInfo(string name, string type, int channel_count, double nominal_srate, channel_format_t channel_format) { obj = dll.lsl_create_streaminfo(name, type, channel_count, nominal_srate, channel_format, ""); }
-        public StreamInfo(string name, string type, int channel_count, double nominal_srate, channel_format_t channel_format, string source_id) { obj = dll.lsl_create_streaminfo(name, type, channel_count, nominal_srate, channel_format, source_id); }
-        public StreamInfo(IntPtr handle) { obj = handle; }
-
-        /// Destroy a previously created streaminfo object.
-        ~StreamInfo() { dll.lsl_destroy_streaminfo(obj); }
-
-        // ========================
-        // === Core Information ===
-        // ========================
-        // (these fields are assigned at construction)
-
-        /**
-        * Name of the stream.
-        * This is a human-readable name. For streams offered by device modules, it refers to the type of device or product series 
-        * that is generating the data of the stream. If the source is an application, the name may be a more generic or specific identifier.
-        * Multiple streams with the same name can coexist, though potentially at the cost of ambiguity (for the recording app or experimenter).
-        */
-        public string name() { return Marshal.PtrToStringAnsi(dll.lsl_get_name(obj)); }
-
-
-        /**
-        * Content type of the stream.
-        * The content type is a short string such as "EEG", "Gaze" which describes the content carried by the channel (if known). 
-        * If a stream contains mixed content this value need not be assigned but may instead be stored in the description of channel types.
-        * To be useful to applications and automated processing systems using the recommended content types is preferred. 
-        * Content types usually follow those pre-defined in https://github.com/sccn/xdf/wiki/Meta-Data (or web search for: XDF meta-data).
-        */
-        public string type() { return Marshal.PtrToStringAnsi(dll.lsl_get_type(obj)); }
-        
-        /**
-        * Number of channels of the stream.
-        * A stream has at least one channel; the channel count stays constant for all samples.
-        */
-        public int channel_count() { return dll.lsl_get_channel_count(obj); }
-
-        /**
-        * Sampling rate of the stream, according to the source (in Hz).
-        * If a stream is irregularly sampled, this should be set to IRREGULAR_RATE.
-        *
-        * Note that no data will be lost even if this sampling rate is incorrect or if a device has temporary 
-        * hiccups, since all samples will be recorded anyway (except for those dropped by the device itself). However, 
-        * when the recording is imported into an application, a good importer may correct such errors more accurately 
-        * if the advertised sampling rate was close to the specs of the device.
-        */
-        public double nominal_srate() { return dll.lsl_get_nominal_srate(obj); }
-
-        /**
-        * Channel format of the stream.
-        * All channels in a stream have the same format. However, a device might offer multiple time-synched streams 
-        * each with its own format.
-        */
-        public channel_format_t channel_format() { return dll.lsl_get_channel_format(obj); }
-
-        /**
-        * Unique identifier of the stream's source, if available.
-        * The unique source (or device) identifier is an optional piece of information that, if available, allows that
-        * endpoints (such as the recording program) can re-acquire a stream automatically once it is back online.
-        */
-        public string source_id() { return Marshal.PtrToStringAnsi(dll.lsl_get_source_id(obj)); }
-
-
-        // ======================================
-        // === Additional Hosting Information ===
-        // ======================================
-        // (these fields are implicitly assigned once bound to an outlet/inlet)
-
-        /**
-        * Protocol version used to deliver the stream.
-        */
-        public int version() { return dll.lsl_get_version(obj); }
-
-        /**
-        * Creation time stamp of the stream.
-        * This is the time stamp when the stream was first created
-        * (as determined via local_clock() on the providing machine).
-        */
-        public double created_at() { return dll.lsl_get_created_at(obj); }
-
-        /**
-        * Unique ID of the stream outlet instance (once assigned).
-        * This is a unique identifier of the stream outlet, and is guaranteed to be different
-        * across multiple instantiations of the same outlet (e.g., after a re-start).
-        */
-        public string uid() { return Marshal.PtrToStringAnsi(dll.lsl_get_uid(obj)); }
-
-        /**
-        * Session ID for the given stream.
-        * The session id is an optional human-assigned identifier of the recording session.
-        * While it is rarely used, it can be used to prevent concurrent recording activitites 
-        * on the same sub-network (e.g., in multiple experiment areas) from seeing each other's streams 
-        * (assigned via a configuration file by the experimenter, see Network Connectivity in the LSL wiki).
-        */
-        public string session_id() { return Marshal.PtrToStringAnsi(dll.lsl_get_session_id(obj)); }
-
-        /**
-        * Hostname of the providing machine.
-        */
-        public string hostname() { return Marshal.PtrToStringAnsi(dll.lsl_get_hostname(obj)); }
-
-
-        // ========================
-        // === Data Description ===
-        // ========================
-
-        /**
-        * Extended description of the stream.
-        * It is highly recommended that at least the channel labels are described here. 
-        * See code examples on the LSL wiki. Other information, such as amplifier settings, 
-        * measurement units if deviating from defaults, setup information, subject information, etc., 
-        * can be specified here, as well. Meta-data recommendations follow the XDF file format project
-        * (github.com/sccn/xdf/wiki/Meta-Data or web search for: XDF meta-data).
-        *
-        * Important: if you use a stream content type for which meta-data recommendations exist, please 
-        * try to lay out your meta-data in agreement with these recommendations for compatibility with other applications.
-        */
-        public XMLElement desc() { return new XMLElement(dll.lsl_get_desc(obj)); }
-
-        /**
-        * Retrieve the entire stream_info in XML format.
-        * This yields an XML document (in string form) whose top-level element is <info>. The info element contains
-        * one element for each field of the stream_info class, including:
-        *  a) the core elements <name>, <type>, <channel_count>, <nominal_srate>, <channel_format>, <source_id>
-        *  b) the misc elements <version>, <created_at>, <uid>, <session_id>, <v4address>, <v4data_port>, <v4service_port>, <v6address>, <v6data_port>, <v6service_port>
-        *  c) the extended description element <desc> with user-defined sub-elements.
-        */
-        public string as_xml()
-        {
-            IntPtr pXml = dll.lsl_get_xml(obj);
-            string strXml = Marshal.PtrToStringAnsi(pXml);
-            dll.lsl_destroy_string(pXml);
-            return strXml;
-        }
-
-
-        /**
-         * Get access to the underlying handle.
-         */
-        public IntPtr handle() { return obj; }
-
-        private IntPtr obj;
-    }
-
-
-    // =======================
-    // ==== Stream Outlet ====
-    // =======================
-
-    /**
-    * A stream outlet.
-    * Outlets are used to make streaming data (and the meta-data) available on the lab network.
-    */
-    public class StreamOutlet
-    {
-        /**
-        * Establish a new stream outlet. This makes the stream discoverable.
-        * @param info The stream information to use for creating this stream. Stays constant over the lifetime of the outlet.
-        * @param chunk_size Optionally the desired chunk granularity (in samples) for transmission. If unspecified, 
-        *                   each push operation yields one chunk. Inlets can override this setting.
-        * @param max_buffered Optionally the maximum amount of data to buffer (in seconds if there is a nominal 
-        *                     sampling rate, otherwise x100 in samples). The default is 6 minutes of data. 
-        */
-        public StreamOutlet(StreamInfo info) { obj = dll.lsl_create_outlet(info.handle(), 0, 360); }
-        public StreamOutlet(StreamInfo info, int chunk_size) { obj = dll.lsl_create_outlet(info.handle(), chunk_size, 360); }
-        public StreamOutlet(StreamInfo info, int chunk_size, int max_buffered) { obj = dll.lsl_create_outlet(info.handle(), chunk_size, max_buffered); }
-
-        /**
-        * Destructor.
-        * The stream will no longer be discoverable after destruction and all paired inlets will stop delivering data.
-        */
-        ~StreamOutlet() { dll.lsl_destroy_outlet(obj); }
-
-
-        // ========================================
-        // === Pushing a sample into the outlet ===
-        // ========================================
-
-        /**
-        * Push an array of values as a sample into the outlet. 
-        * Each entry in the vector corresponds to one channel.
-        * @param data An array of values to push (one for each channel).
-        * @param timestamp Optionally the capture time of the sample, in agreement with local_clock(); if omitted, the current time is used.
-        * @param pushthrough Optionally whether to push the sample through to the receivers instead of buffering it with subsequent samples.
-        *                    Note that the chunk_size, if specified at outlet construction, takes precedence over the pushthrough flag.
-        */
-        public void push_sample(float[] data) { dll.lsl_push_sample_ftp(obj, data, 0.0, 1); }
-        public void push_sample(float[] data, double timestamp) { dll.lsl_push_sample_ftp(obj, data, timestamp, 1); }
-        public void push_sample(float[] data, double timestamp, bool pushthrough) { dll.lsl_push_sample_ftp(obj, data, timestamp, pushthrough ? 1 : 0); }
-        public void push_sample(double[] data) { dll.lsl_push_sample_dtp(obj, data, 0.0, 1); }
-        public void push_sample(double[] data, double timestamp) { dll.lsl_push_sample_dtp(obj, data, timestamp, 1); }
-        public void push_sample(double[] data, double timestamp, bool pushthrough) { dll.lsl_push_sample_dtp(obj, data, timestamp, pushthrough ? 1 : 0); }
-        public void push_sample(int[] data) { dll.lsl_push_sample_itp(obj, data, 0.0, 1); }
-        public void push_sample(int[] data, double timestamp) { dll.lsl_push_sample_itp(obj, data, timestamp, 1); }
-        public void push_sample(int[] data, double timestamp, bool pushthrough) { dll.lsl_push_sample_itp(obj, data, timestamp, pushthrough ? 1 : 0); }
-        public void push_sample(short[] data) { dll.lsl_push_sample_stp(obj, data, 0.0, 1); }
-        public void push_sample(short[] data, double timestamp) { dll.lsl_push_sample_stp(obj, data, timestamp, 1); }
-        public void push_sample(short[] data, double timestamp, bool pushthrough) { dll.lsl_push_sample_stp(obj, data, timestamp, pushthrough ? 1 : 0); }
-        public void push_sample(char[] data) { dll.lsl_push_sample_ctp(obj, data, 0.0, 1); }
-        public void push_sample(char[] data, double timestamp) { dll.lsl_push_sample_ctp(obj, data, timestamp, 1); }
-        public void push_sample(char[] data, double timestamp, bool pushthrough) { dll.lsl_push_sample_ctp(obj, data, timestamp, pushthrough ? 1 : 0); }
-        public void push_sample(string[] data) { dll.lsl_push_sample_strtp(obj, data, 0.0, 1); }
-        public void push_sample(string[] data, double timestamp) { dll.lsl_push_sample_strtp(obj, data, timestamp, 1); }
-        public void push_sample(string[] data, double timestamp, bool pushthrough) { dll.lsl_push_sample_strtp(obj, data, timestamp, pushthrough ? 1 : 0); }
-
-
-        // ===================================================
-        // === Pushing an chunk of samples into the outlet ===
-        // ===================================================
-
-        /**
-        * Push a chunk of samples into the outlet. Single timestamp provided.
-        * @param data A rectangular array of values for multiple samples.
-        * @param timestamp Optionally the capture time of the most recent sample, in agreement with local_clock(); if omitted, the current time is used.
-        *                   The time stamps of other samples are automatically derived based on the sampling rate of the stream.
-        * @param pushthrough Optionally whether to push the chunk through to the receivers instead of buffering it with subsequent samples.
-        *                    Note that the chunk_size, if specified at outlet construction, takes precedence over the pushthrough flag.
-        */
-        public void push_chunk(float[,] data) { dll.lsl_push_chunk_ftp(obj, data, (uint)data.Length, 0.0, 1); }
-        public void push_chunk(float[,] data, double timestamp) { dll.lsl_push_chunk_ftp(obj, data, (uint)data.Length, timestamp, 1); }
-        public void push_chunk(float[,] data, double timestamp, bool pushthrough) { dll.lsl_push_chunk_ftp(obj, data, (uint)data.Length, timestamp, pushthrough ? 1 : 0); }
-        public void push_chunk(double[,] data) { dll.lsl_push_chunk_dtp(obj, data, (uint)data.Length, 0.0, 1); }
-        public void push_chunk(double[,] data, double timestamp) { dll.lsl_push_chunk_dtp(obj, data, (uint)data.Length, timestamp, 1); }
-        public void push_chunk(double[,] data, double timestamp, bool pushthrough) { dll.lsl_push_chunk_dtp(obj, data, (uint)data.Length, timestamp, pushthrough ? 1 : 0); }
-        public void push_chunk(int[,] data) { dll.lsl_push_chunk_itp(obj, data, (uint)data.Length, 0.0, 1); }
-        public void push_chunk(int[,] data, double timestamp) { dll.lsl_push_chunk_itp(obj, data, (uint)data.Length, timestamp, 1); }
-        public void push_chunk(int[,] data, double timestamp, bool pushthrough) { dll.lsl_push_chunk_itp(obj, data, (uint)data.Length, timestamp, pushthrough ? 1 : 0); }
-        public void push_chunk(short[,] data) { dll.lsl_push_chunk_stp(obj, data, (uint)data.Length, 0.0, 1); }
-        public void push_chunk(short[,] data, double timestamp) { dll.lsl_push_chunk_stp(obj, data, (uint)data.Length, timestamp, 1); }
-        public void push_chunk(short[,] data, double timestamp, bool pushthrough) { dll.lsl_push_chunk_stp(obj, data, (uint)data.Length, timestamp, pushthrough ? 1 : 0); }
-        public void push_chunk(char[,] data) { dll.lsl_push_chunk_ctp(obj, data, (uint)data.Length, 0.0, 1); }
-        public void push_chunk(char[,] data, double timestamp) { dll.lsl_push_chunk_ctp(obj, data, (uint)data.Length, timestamp, 1); }
-        public void push_chunk(char[,] data, double timestamp, bool pushthrough) { dll.lsl_push_chunk_ctp(obj, data, (uint)data.Length, timestamp, pushthrough ? 1 : 0); }
-        public void push_chunk(string[,] data) { dll.lsl_push_chunk_strtp(obj, data, (uint)data.Length, 0.0, 1); }
-        public void push_chunk(string[,] data, double timestamp) { dll.lsl_push_chunk_strtp(obj, data, (uint)data.Length, timestamp, 1); }
-        public void push_chunk(string[,] data, double timestamp, bool pushthrough) { dll.lsl_push_chunk_strtp(obj, data, (uint)data.Length, timestamp, pushthrough ? 1 : 0); }
-
-        /**
-        * Push a chunk of multiplexed samples into the outlet. One timestamp per sample is provided.
-        * @param data A rectangular array of values for multiple samples.
-        * @param timestamps An array of timestamp values holding time stamps for each sample in the data buffer.
-        * @param pushthrough Optionally whether to push the chunk through to the receivers instead of buffering it with subsequent samples.
-        *                    Note that the chunk_size, if specified at outlet construction, takes precedence over the pushthrough flag.
-        */
-        public void push_chunk(float[,] data, double[] timestamps) { dll.lsl_push_chunk_ftnp(obj, data, (uint)data.Length, timestamps, 1); }
-        public void push_chunk(float[,] data, double[] timestamps, bool pushthrough) { dll.lsl_push_chunk_ftnp(obj, data, (uint)data.Length, timestamps, pushthrough ? 1 : 0); }
-        public void push_chunk(double[,] data, double[] timestamps) { dll.lsl_push_chunk_dtnp(obj, data, (uint)data.Length, timestamps, 1); }
-        public void push_chunk(double[,] data, double[] timestamps, bool pushthrough) { dll.lsl_push_chunk_dtnp(obj, data, (uint)data.Length, timestamps, pushthrough ? 1 : 0); }
-        public void push_chunk(int[,] data, double[] timestamps) { dll.lsl_push_chunk_itnp(obj, data, (uint)data.Length, timestamps, 1); }
-        public void push_chunk(int[,] data, double[] timestamps, bool pushthrough) { dll.lsl_push_chunk_itnp(obj, data, (uint)data.Length, timestamps, pushthrough ? 1 : 0); }
-        public void push_chunk(short[,] data, double[] timestamps) { dll.lsl_push_chunk_stnp(obj, data, (uint)data.Length, timestamps, 1); }
-        public void push_chunk(short[,] data, double[] timestamps, bool pushthrough) { dll.lsl_push_chunk_stnp(obj, data, (uint)data.Length, timestamps, pushthrough ? 1 : 0); }
-        public void push_chunk(char[,] data, double[] timestamps) { dll.lsl_push_chunk_ctnp(obj, data, (uint)data.Length, timestamps, 1); }
-        public void push_chunk(char[,] data, double[] timestamps, bool pushthrough) { dll.lsl_push_chunk_ctnp(obj, data, (uint)data.Length, timestamps, pushthrough ? 1 : 0); }
-        public void push_chunk(string[,] data, double[] timestamps) { dll.lsl_push_chunk_strtnp(obj, data, (uint)data.Length, timestamps, 1); }
-        public void push_chunk(string[,] data, double[] timestamps, bool pushthrough) { dll.lsl_push_chunk_strtnp(obj, data, (uint)data.Length, timestamps, pushthrough ? 1 : 0); }
-
-
-        // ===============================
-        // === Miscellaneous Functions ===
-        // ===============================
-
-        /**
-        * Check whether consumers are currently registered.
-        * While it does not hurt, there is technically no reason to push samples if there is no consumer.
-        */
-        public bool have_consumers() { return dll.lsl_have_consumers(obj)>0; }
-
-        /**
-        * Wait until some consumer shows up (without wasting resources).
-        * @return True if the wait was successful, false if the timeout expired.
-        */
-        public bool wait_for_consumers(double timeout) { return dll.lsl_wait_for_consumers(obj)>0; }
-
-        /**
-        * Retrieve the stream info provided by this outlet.
-        * This is what was used to create the stream (and also has the Additional Network Information fields assigned).
-        */ 
-        public StreamInfo info() { return new StreamInfo(dll.lsl_get_info(obj)); }
-
-        private IntPtr obj;
-    }
-
-
-    // ===========================
-    // ==== Resolve Functions ====
-    // ===========================
-
-    /**
-    * Resolve all streams on the network.
-    * This function returns all currently available streams from any outlet on the network.
-    * The network is usually the subnet specified at the local router, but may also include 
-    * a multicast group of machines (given that the network supports it), or list of hostnames.
-    * These details may optionally be customized by the experimenter in a configuration file 
-    * (see Network Connectivity in the LSL wiki).
-    * This is the default mechanism used by the browsing programs and the recording program.
-    * @param wait_time The waiting time for the operation, in seconds, to search for streams.
-    *                  Warning: If this is too short (less than 0.5s) only a subset (or none) of the 
-    *                           outlets that are present on the network may be returned.
-    * @return An array of stream info objects (excluding their desc field), any of which can 
-    *         subsequently be used to open an inlet. The full info can be retrieve from the inlet.
-    */
-    public static StreamInfo[] resolve_streams() { return resolve_streams(1.0); }
-    public static StreamInfo[] resolve_streams(double wait_time)
-    {
-        IntPtr[] buf = new IntPtr[1024]; int num = dll.lsl_resolve_all(buf, (uint)buf.Length, wait_time);
-        StreamInfo[] res = new StreamInfo[num];
-        for (int k = 0; k < num; k++)
-            res[k] = new StreamInfo(buf[k]);
-        return res;
-    }
-
-    /**
-    * Resolve all streams with a specific value for a given property.
-    * If the goal is to resolve a specific stream, this method is preferred over resolving all streams and then selecting the desired one.
-    * @param prop The stream_info property that should have a specific value (e.g., "name", "type", "source_id", or "desc/manufaturer").
-    * @param value The string value that the property should have (e.g., "EEG" as the type property).
-    * @param minimum Optionally return at least this number of streams.
-    * @param timeout Optionally a timeout of the operation, in seconds (default: no timeout).
-    *                 If the timeout expires, less than the desired number of streams (possibly none) will be returned.
-    * @return An array of matching stream info objects (excluding their meta-data), any of 
-    *         which can subsequently be used to open an inlet.
-    */
-    public static StreamInfo[] resolve_stream(string prop, string value) { return resolve_stream(prop, value, 1, FOREVER); }
-    public static StreamInfo[] resolve_stream(string prop, string value, int minimum) { return resolve_stream(prop, value, minimum, FOREVER); }
-    public static StreamInfo[] resolve_stream(string prop, string value, int minimum, double timeout)
-    {
-        IntPtr[] buf = new IntPtr[1024]; int num = dll.lsl_resolve_byprop(buf, (uint)buf.Length, prop, value, minimum, timeout);
-        StreamInfo[] res = new StreamInfo[num];
-        for (int k = 0; k < num; k++)
-            res[k] = new StreamInfo(buf[k]);
-        return res;
-    }
-
-    /**
-    * Resolve all streams that match a given predicate.
-    * Advanced query that allows to impose more conditions on the retrieved streams; the given string is an XPath 1.0 
-    * predicate for the <info> node (omitting the surrounding []'s), see also http://en.wikipedia.org/w/index.php?title=XPath_1.0&oldid=474981951.
-    * @param pred The predicate string, e.g. "name='BioSemi'" or "type='EEG' and starts-with(name,'BioSemi') and count(info/desc/channel)=32"
-    * @param minimum Return at least this number of streams.
-    * @param timeout Optionally a timeout of the operation, in seconds (default: no timeout).
-    *                 If the timeout expires, less than the desired number of streams (possibly none) will be returned.
-    * @return An array of matching stream info objects (excluding their meta-data), any of 
-    *         which can subsequently be used to open an inlet.
-    */
-    public static StreamInfo[] resolve_stream(string pred) { return resolve_stream(pred, 1, FOREVER); }
-    public static StreamInfo[] resolve_stream(string pred, int minimum) { return resolve_stream(pred, minimum, FOREVER); }
-    public static StreamInfo[] resolve_stream(string pred, int minimum, double timeout)
-    {
-        IntPtr[] buf = new IntPtr[1024]; int num = dll.lsl_resolve_bypred(buf, (uint)buf.Length, pred, minimum, timeout);
-        StreamInfo[] res = new StreamInfo[num];
-        for (int k = 0; k < num; k++)
-            res[k] = new StreamInfo(buf[k]);
-        return res;
-    }
-
-
-    // ======================
-    // ==== Stream Inlet ====
-    // ======================
-
-    /**
-    * A stream inlet.
-    * Inlets are used to receive streaming data (and meta-data) from the lab network.
-    */
-    public class StreamInlet
-    {
-/**
-        * Construct a new stream inlet from a resolved stream info.
-        * @param info A resolved stream info object (as coming from one of the resolver functions).
-        *             Note: the stream_inlet may also be constructed with a fully-specified stream_info, 
-        *                   if the desired channel format and count is already known up-front, but this is 
-        *                   strongly discouraged and should only ever be done if there is no time to resolve the 
-        *                   stream up-front (e.g., due to limitations in the client program).
-        * @param max_buflen Optionally the maximum amount of data to buffer (in seconds if there is a nominal 
-        *                   sampling rate, otherwise x100 in samples). Recording applications want to use a fairly 
-        *                   large buffer size here, while real-time applications would only buffer as much as 
-        *                   they need to perform their next calculation.
-        * @param max_chunklen Optionally the maximum size, in samples, at which chunks are transmitted 
-        *                     (the default corresponds to the chunk sizes used by the sender).
-        *                     Recording applications can use a generous size here (leaving it to the network how 
-        *                     to pack things), while real-time applications may want a finer (perhaps 1-sample) granularity.
-                              If left unspecified (=0), the sender determines the chunk granularity.
-        * @param recover Try to silently recover lost streams that are recoverable (=those that that have a source_id set). 
-        *                In all other cases (recover is false or the stream is not recoverable) functions may throw a 
-        *                LostException if the stream's source is lost (e.g., due to an app or computer crash).
-        */
-        public StreamInlet(StreamInfo info) { obj = dll.lsl_create_inlet(info.handle(), 360, 0, 1); }
-        public StreamInlet(StreamInfo info, int max_buflen) { obj = dll.lsl_create_inlet(info.handle(), max_buflen, 0, 1); }
-        public StreamInlet(StreamInfo info, int max_buflen, int max_chunklen) { obj = dll.lsl_create_inlet(info.handle(), max_buflen, max_chunklen, 1); }
-        public StreamInlet(StreamInfo info, int max_buflen, int max_chunklen, bool recover) { obj = dll.lsl_create_inlet(info.handle(), max_buflen, max_chunklen, recover?1:0); }
-
-        /** 
-        * Destructor.
-        * The inlet will automatically disconnect if destroyed.
-        */
-        ~StreamInlet() { dll.lsl_destroy_inlet(obj); }
-
-        /**
-        * Retrieve the complete information of the given stream, including the extended description.
-        * Can be invoked at any time of the stream's lifetime.
-        * @param timeout Timeout of the operation (default: no timeout).
-        * @throws TimeoutException (if the timeout expires), or LostException (if the stream source has been lost).
-        */
-        public StreamInfo info() { return info(FOREVER); }
-        public StreamInfo info(double timeout) { int ec=0; IntPtr res = dll.lsl_get_fullinfo(obj, timeout, ref ec); check_error(ec); return new StreamInfo(res); }
-
-        /**
-        * Subscribe to the data stream.
-        * All samples pushed in at the other end from this moment onwards will be queued and 
-        * eventually be delivered in response to pull_sample() or pull_chunk() calls. 
-        * Pulling a sample without some preceding open_stream is permitted (the stream will then be opened implicitly).
-        * @param timeout Optional timeout of the operation (default: no timeout).
-        * @throws TimeoutException (if the timeout expires), or LostException (if the stream source has been lost).
-        */
-        public void open_stream() { open_stream(FOREVER); }
-        public void open_stream(double timeout) { int ec = 0; dll.lsl_open_stream(obj, timeout, ref ec); check_error(ec); }
- 
-        /**
-        * Drop the current data stream.
-        * All samples that are still buffered or in flight will be dropped and transmission 
-        * and buffering of data for this inlet will be stopped. If an application stops being 
-        * interested in data from a source (temporarily or not) but keeps the outlet alive, 
-        * it should call close_stream() to not waste unnecessary system and network 
-        * resources.
-        */
-        public void close_stream() { dll.lsl_close_stream(obj); }
-
-        /**
-        * Retrieve an estimated time correction offset for the given stream.
-        * The first call to this function takes several miliseconds until a reliable first estimate is obtained.
-        * Subsequent calls are instantaneous (and rely on periodic background updates).
-        * The precision of these estimates should be below 1 ms (empirically within +/-0.2 ms).
-        * @timeout Timeout to acquire the first time-correction estimate (default: no timeout).
-        * @return The time correction estimate. This is the number that needs to be added to a time stamp 
-        *         that was remotely generated via lsl_local_clock() to map it into the local clock domain of this machine.
-        * @throws TimeoutException (if the timeout expires), or LostException (if the stream source has been lost).
-        */
-        public double time_correction() { return time_correction(FOREVER); }
-        public double time_correction(double timeout) { int ec = 0; double res = dll.lsl_time_correction(obj, timeout, ref ec); check_error(ec); return res; }
-
-        // =======================================
-        // === Pulling a sample from the inlet ===
-        // =======================================
-
-        /**
-        * Pull a sample from the inlet and read it into an array of values.
-        * Handles type checking & conversion.
-        * @param sample An array to hold the resulting values.
-        * @param timeout The timeout for this operation, if any. Use 0.0 to make the function non-blocking.
-        * @return The capture time of the sample on the remote machine, or 0.0 if no new sample was available. 
-        *          To remap this time stamp to the local clock, add the value returned by .time_correction() to it. 
-        * @throws LostException (if the stream source has been lost).
-        */
-        public double pull_sample(float[] sample) { return pull_sample(sample, FOREVER);  }        
-        public double pull_sample(float[] sample, double timeout) { int ec = 0; double res = dll.lsl_pull_sample_f(obj, sample, sample.Length, timeout, ref ec); check_error(ec); return res; }
-        public double pull_sample(double[] sample) { return pull_sample(sample, FOREVER); }
-        public double pull_sample(double[] sample, double timeout) { int ec = 0; double res = dll.lsl_pull_sample_d(obj, sample, sample.Length, timeout, ref ec); check_error(ec); return res; }
-        public double pull_sample(int[] sample) { return pull_sample(sample, FOREVER); }
-        public double pull_sample(int[] sample, double timeout) { int ec = 0; double res = dll.lsl_pull_sample_i(obj, sample, sample.Length, timeout, ref ec); check_error(ec); return res; }
-        public double pull_sample(short[] sample) { return pull_sample(sample, FOREVER); }
-        public double pull_sample(short[] sample, double timeout) { int ec = 0; double res = dll.lsl_pull_sample_s(obj, sample, sample.Length, timeout, ref ec); check_error(ec); return res; }
-        public double pull_sample(char[] sample) { return pull_sample(sample, FOREVER); }
-        public double pull_sample(char[] sample, double timeout) { int ec = 0; double res = dll.lsl_pull_sample_c(obj, sample, sample.Length, timeout, ref ec); check_error(ec); return res; }
-        public double pull_sample(string[] sample) { return pull_sample(sample, FOREVER); }
-        public double pull_sample(string[] sample, double timeout) { 
-            int ec = 0;
-            IntPtr[] tmp = new IntPtr[sample.Length];
-            double res = dll.lsl_pull_sample_str(obj, tmp, tmp.Length, timeout, ref ec); check_error(ec);
-            try {
-                for (int k = 0; k < tmp.Length; k++)
-                    sample[k] = Marshal.PtrToStringAnsi(tmp[k]);
-            } finally {
-                for (int k = 0; k < tmp.Length; k++)
-                    dll.lsl_destroy_string(tmp[k]);
-            }
-            return res;
-        }
-
-
-        // =================================================
-        // === Pulling a chunk of samples from the inlet ===
-        // =================================================
-
-        /**
-        * Pull a chunk of data from the inlet.
-        * @param data_buffer A pre-allocated buffer where the channel data shall be stored.
-        * @param timestamp_buffer A pre-allocated buffer where time stamps shall be stored. 
-        * @param timeout Optionally the timeout for this operation, if any. When the timeout expires, the function 
-        *                may return before the entire buffer is filled. The default value of 0.0 will retrieve only 
-        *                data available for immediate pickup.
-        * @return samples_written Number of samples written to the data and timestamp buffers.
-        * @throws LostException (if the stream source has been lost).
-        */
-        public int pull_chunk(float[,] data_buffer, double[] timestamp_buffer) { return pull_chunk(data_buffer, timestamp_buffer, 0.0); }
-        public int pull_chunk(float[,] data_buffer, double[] timestamp_buffer, double timeout) { int ec = 0; uint res = dll.lsl_pull_chunk_f(obj, data_buffer, timestamp_buffer, (uint)data_buffer.Length, (uint)timestamp_buffer.Length, timeout, ref ec); check_error(ec); return (int)res / data_buffer.GetLength(1); }
-        public int pull_chunk(double[,] data_buffer, double[] timestamp_buffer) { return pull_chunk(data_buffer, timestamp_buffer, 0.0); }
-        public int pull_chunk(double[,] data_buffer, double[] timestamp_buffer, double timeout) { int ec = 0; uint res = dll.lsl_pull_chunk_d(obj, data_buffer, timestamp_buffer, (uint)data_buffer.Length, (uint)timestamp_buffer.Length, timeout, ref ec); check_error(ec); return (int)res / data_buffer.GetLength(1); }
-        public int pull_chunk(int[,] data_buffer, double[] timestamp_buffer) { return pull_chunk(data_buffer, timestamp_buffer, 0.0); }
-        public int pull_chunk(int[,] data_buffer, double[] timestamp_buffer, double timeout) { int ec = 0; uint res = dll.lsl_pull_chunk_i(obj, data_buffer, timestamp_buffer, (uint)data_buffer.Length, (uint)timestamp_buffer.Length, timeout, ref ec); check_error(ec); return (int)res / data_buffer.GetLength(1); }
-        public int pull_chunk(short[,] data_buffer, double[] timestamp_buffer) { return pull_chunk(data_buffer, timestamp_buffer, 0.0); }
-        public int pull_chunk(short[,] data_buffer, double[] timestamp_buffer, double timeout) { int ec = 0; uint res = dll.lsl_pull_chunk_s(obj, data_buffer, timestamp_buffer, (uint)data_buffer.Length, (uint)timestamp_buffer.Length, timeout, ref ec); check_error(ec); return (int)res / data_buffer.GetLength(1); }
-        public int pull_chunk(char[,] data_buffer, double[] timestamp_buffer) { return pull_chunk(data_buffer, timestamp_buffer, 0.0); }
-        public int pull_chunk(char[,] data_buffer, double[] timestamp_buffer, double timeout) { int ec = 0; uint res = dll.lsl_pull_chunk_c(obj, data_buffer, timestamp_buffer, (uint)data_buffer.Length, (uint)timestamp_buffer.Length, timeout, ref ec); check_error(ec); return (int)res / data_buffer.GetLength(1); }
-        public int pull_chunk(string[,] data_buffer, double[] timestamp_buffer) { return pull_chunk(data_buffer, timestamp_buffer, 0.0); }
-        public int pull_chunk(string[,] data_buffer, double[] timestamp_buffer, double timeout) { 
-            int ec = 0;
-            IntPtr[,] tmp = new IntPtr[data_buffer.GetLength(0),data_buffer.GetLength(1)];
-            uint res = dll.lsl_pull_chunk_str(obj, tmp, timestamp_buffer, (uint)tmp.Length, (uint)timestamp_buffer.Length, timeout, ref ec);
-            check_error(ec);
-            try {
-                for (int s = 0; s < tmp.GetLength(0); s++)
-                    for (int c = 0; c < tmp.GetLength(1); c++)
-                        data_buffer[s,c] = Marshal.PtrToStringAnsi(tmp[s,c]);
-            } finally {
-                for (int s = 0; s < tmp.GetLength(0); s++)
-                    for (int c = 0; c < tmp.GetLength(1); c++)
-                        dll.lsl_destroy_string(tmp[s,c]);
-            }
-            return (int)res / data_buffer.GetLength(1);
-        }
-
-        /**
-        * Query whether samples are currently available for immediate pickup.
-        * Note that it is not a good idea to use samples_available() to determine whether 
-        * a pull_*() call would block: to be sure, set the pull timeout to 0.0 or an acceptably
-        * low value. If the underlying implementation supports it, the value will be the number of 
-        * samples available (otherwise it will be 1 or 0).
-        */
-        public int samples_available() { return (int)dll.lsl_samples_available(obj); }
-
-        /**
-        * Query whether the clock was potentially reset since the last call to was_clock_reset().
-        * This is a rarely-used function that is only useful to applications that combine multiple time_correction 
-        * values to estimate precise clock drift; it allows to tolerate cases where the source machine was 
-        * hot-swapped or restarted in between two measurements.
-        */
-        public bool was_clock_reset() { return (int)dll.lsl_was_clock_reset(obj)!=0; }
-
-        private IntPtr obj;
-    }
-
-
-    // =====================
-    // ==== XML Element ====
-    // =====================
-
-    /**
-    * A lightweight XML element tree; models the .desc() field of stream_info.
-    * Has a name and can have multiple named children or have text content as value; attributes are omitted.
-    * Insider note: The interface is modeled after a subset of pugixml's node type and is compatible with it.
-    * See also http://pugixml.googlecode.com/svn/tags/latest/docs/manual/access.html for additional documentation.
-    */
-    public struct XMLElement {
-        public XMLElement(IntPtr handle) { obj = handle; }
-
-        // === Tree Navigation ===
-
-        /// Get the first child of the element.
-        public XMLElement first_child() { return new XMLElement(dll.lsl_first_child(obj)); }
-
-        /// Get the last child of the element.
-        public XMLElement last_child() { return new XMLElement(dll.lsl_last_child(obj)); }
-
-        /// Get the next sibling in the children list of the parent node.
-        public XMLElement next_sibling() { return new XMLElement(dll.lsl_next_sibling(obj)); }
-
-        /// Get the previous sibling in the children list of the parent node.
-        public XMLElement previous_sibling() { return new XMLElement(dll.lsl_previous_sibling(obj)); }
-
-        /// Get the parent node.
-        public XMLElement parent() { return new XMLElement(dll.lsl_parent(obj)); }
-
-
-        // === Tree Navigation by Name ===
-
-        /// Get a child with a specified name.
-        public XMLElement child(string name) { return new XMLElement(dll.lsl_child(obj,name)); }
-
-        /// Get the next sibling with the specified name.
-        public XMLElement next_sibling(string name) { return new XMLElement(dll.lsl_next_sibling_n(obj, name)); }
-
-        /// Get the previous sibling with the specified name.
-        public XMLElement previous_sibling(string name) { return new XMLElement(dll.lsl_previous_sibling_n(obj, name)); }
-
-
-        // === Content Queries ===
-
-        /// Whether this node is empty.
-        public bool empty() { return dll.lsl_empty(obj)!=0; }
-
-        /// Whether this is a text body (instead of an XML element). True both for plain char data and CData.
-        public bool is_text() { return dll.lsl_is_text(obj) != 0; }
-
-        /// Name of the element.
-        public string name() { return Marshal.PtrToStringAnsi(dll.lsl_name(obj)); }
-
-        /// Value of the element.
-        public string value() { return Marshal.PtrToStringAnsi(dll.lsl_value(obj)); }
-
-        /// Get child value (value of the first child that is text).
-        public string child_value() { return Marshal.PtrToStringAnsi(dll.lsl_child_value(obj)); }
-
-        /// Get child value of a child with a specified name.
-        public string child_value(string name) { return Marshal.PtrToStringAnsi(dll.lsl_child_value_n(obj,name)); }
-
-
-        // === Modification ===
-
-        /**
-        * Append a child node with a given name, which has a (nameless) plain-text child with the given text value.
-        */
-        public XMLElement append_child_value(string name, string value) { return new XMLElement(dll.lsl_append_child_value(obj, name, value)); }
-
-        /**
-        * Prepend a child node with a given name, which has a (nameless) plain-text child with the given text value.
-        */
-        public XMLElement prepend_child_value(string name, string value) { return new XMLElement(dll.lsl_prepend_child_value(obj, name, value)); }
-
-        /**
-        * Set the text value of the (nameless) plain-text child of a named child node.
-        */
-        public bool set_child_value(string name, string value) { return dll.lsl_set_child_value(obj, name, value) != 0; }
-
-        /**
-        * Set the element's name.
-        * @return False if the node is empty.
-        */
-        public bool set_name(string rhs) { return dll.lsl_set_name(obj, rhs) != 0; }
-
-        /**
-        * Set the element's value.
-        * @return False if the node is empty.
-        */
-        public bool set_value(string rhs) { return dll.lsl_set_value(obj, rhs) != 0; }
-
-        /// Append a child element with the specified name.
-        public XMLElement append_child(string name) { return new XMLElement(dll.lsl_append_child(obj, name)); }
-
-        /// Prepend a child element with the specified name.
-        public XMLElement prepend_child(string name) { return new XMLElement(dll.lsl_prepend_child(obj, name)); }
-
-        /// Append a copy of the specified element as a child.
-        public XMLElement append_copy(XMLElement e) { return new XMLElement(dll.lsl_append_copy(obj, e.obj)); }
-
-        /// Prepend a child element with the specified name.
-        public XMLElement prepend_copy(XMLElement e) { return new XMLElement(dll.lsl_prepend_copy(obj, e.obj)); }
-
-        /// Remove a child element with the specified name.
-        public void remove_child(string name) { dll.lsl_remove_child_n(obj, name); }
-
-        /// Remove a specified child element.
-        public void remove_child(XMLElement e) { dll.lsl_remove_child(obj, e.obj); }
-
-        IntPtr obj;
-    }
-
-
-    // ===========================
-    // === Continuous Resolver ===
-    // ===========================
-
-    /** 
-    * A convenience class that resolves streams continuously in the background throughout 
-    * its lifetime and which can be queried at any time for the set of streams that are currently 
-    * visible on the network.
-    */
-
-    public class ContinuousResolver
-    {
-        /**
-        * Construct a new continuous_resolver that resolves all streams on the network. 
-        * This is analogous to the functionality offered by the free function resolve_streams().
-        * @param forget_after When a stream is no longer visible on the network (e.g., because it was shut down),
-        *                     this is the time in seconds after which it is no longer reported by the resolver.
-        */
-        public ContinuousResolver() { obj = dll.lsl_create_continuous_resolver(5.0); }
-        public ContinuousResolver(double forget_after) { obj = dll.lsl_create_continuous_resolver(forget_after); }
-
-        /**
-        * Construct a new continuous_resolver that resolves all streams with a specific value for a given property.
-        * This is analogous to the functionality provided by the free function resolve_stream(prop,value).
-        * @param prop The stream_info property that should have a specific value (e.g., "name", "type", "source_id", or "desc/manufaturer").
-        * @param value The string value that the property should have (e.g., "EEG" as the type property).
-        * @param forget_after When a stream is no longer visible on the network (e.g., because it was shut down),
-        *                     this is the time in seconds after which it is no longer reported by the resolver.
-        */
-        public ContinuousResolver(string prop, string value) { obj = dll.lsl_create_continuous_resolver_byprop(prop, value, 5.0); }
-        public ContinuousResolver(string prop, string value, double forget_after) { obj = dll.lsl_create_continuous_resolver_byprop(prop, value, forget_after); }
-
-        /**
-        * Construct a new continuous_resolver that resolves all streams that match a given XPath 1.0 predicate.
-        * This is analogous to the functionality provided by the free function resolve_stream(pred).
-        * @param pred The predicate string, e.g. "name='BioSemi'" or "type='EEG' and starts-with(name,'BioSemi') and count(info/desc/channel)=32"
-        * @param forget_after When a stream is no longer visible on the network (e.g., because it was shut down),
-        *                     this is the time in seconds after which it is no longer reported by the resolver.
-        */
-        public ContinuousResolver(string pred) { obj = dll.lsl_create_continuous_resolver_bypred(pred, 5.0); }
-        public ContinuousResolver(string pred, double forget_after) { obj = dll.lsl_create_continuous_resolver_bypred(pred, forget_after); }
-
-        /** 
-        * Destructor.
-        */
-        ~ContinuousResolver() { dll.lsl_destroy_continuous_resolver(obj); }
-
-        /**
-        * Obtain the set of currently present streams on the network (i.e. resolve result).
-        * @return An array of matching stream info objects (excluding their meta-data), any of 
-        *         which can subsequently be used to open an inlet.
-        */
-        public StreamInfo[] results()
-        {
-            IntPtr[] buf = new IntPtr[1024]; 
-            int num = dll.lsl_resolver_results(obj,buf,(uint)buf.Length);
-            StreamInfo[] res = new StreamInfo[num];
-            for (int k = 0; k < num; k++)
-                res[k] = new StreamInfo(buf[k]);
-            return res;
-        }
-
-        private IntPtr obj;
-    }
-
-    // =======================
-    // === Exception Types ===
-    // =======================
-
-    /**
-     * Exception class that indicates that a stream inlet's source has been irrecoverably lost.
-     */
-    public class LostException : System.Exception
-    {
-        public LostException() { }
-        public LostException(string message) { }
-        public LostException(string message, System.Exception inner) { }
-        protected LostException(System.Runtime.Serialization.SerializationInfo info,
-            System.Runtime.Serialization.StreamingContext context) { }
-    }
-
-    /**
-     * Exception class that indicates that an internal error has occurred inside liblsl.
-     */
-    public class InternalException : System.Exception
-    {
-        public InternalException() { }
-        public InternalException(string message) { }
-        public InternalException(string message, System.Exception inner) { }
-        protected InternalException(System.Runtime.Serialization.SerializationInfo info,
-            System.Runtime.Serialization.StreamingContext context) { }
-    }
-
-    /**
-     * Check an error condition and throw an exception if appropriate.
-     */
-    public static void check_error(int ec) {
-        if (ec < 0)
-            switch (ec) {
-                case -1: throw new TimeoutException("The operation failed due to a timeout.");
-                case -2: throw new LostException("The stream has been lost.");
-                case -3: throw new ArgumentException("An argument was incorrectly specified (e.g., wrong format or wrong length).");
-                case -4: throw new InternalException("An internal internal error has occurred.");
-                default: throw new Exception("An unknown error has occurred.");
-            }
-    }
-
-
-
-    // === Internal: C library function definitions. ===
-
-    class dll
-    {
-
+#region Enums
+
+/// <summary> Data format of a channel (each transmitted sample holds an array of channels). </summary>
+public enum ChannelFormat
+{
+	/// <summary> For up to 24-bit precision measurements in the appropriate physical unit. </summary>
+	Float32 = 1,
+
+	/// <summary> For universal numeric data as long as permitted by network and disk budget.
+	/// (e.g., microvolts). Integers from -16777216 to 16777216 are represented accurately. </summary>
+	Double64 = 2,
+
+	/// <summary> For variable-length ASCII strings or data blobs, such as video frames,
+	/// the largest representable integer is 53-bit. </summary>
+	Str = 3,
+
+	/// <summary> For high-rate digitized formats that require 32-bit precision. Depends critically on complex event descriptions, etc. </summary>
+	Int32 = 4,
+
+	/// <summary> For very high rate signals (40Khz+) or consumer-grade audio meta-data to represent meaningful units.
+	/// Useful for application event codes or other coded data. </summary>
+	Int16 = 5,
+
+	/// <summary> For binary signals or other coded data. (for professional audio float is recommended). </summary>
+	Int8 = 6,
+
+	/// <summary> For now only for future compatibility. Support for this type is not yet exposed in all languages.
+	/// Not recommended for encoding string data. </summary>
+	Int64 = 7,
+
+	/// <summary> Can not be transmitted. Also, some builds of liblsl will not be able to send or receive data of this type. </summary>
+	Undefined = 0
+}
+
+/// <summary> Post-processing options for stream inlets. </summary>
+public enum ProcessingOptions
+{
+	/// <summary> No automatic post-processing; return the ground-truth time stamps for manual post-processing. </summary>
+	None = 0,
+
+	/// <summary> Perform automatic clock synchronization; equivalent to manually adding the TimeCorrection() value (this is the default behavior of the inlet). </summary>
+	ClockSync = 1,
+
+	/// <summary> Remove jitter from time stamps. This will apply a smoothing algorithm to the received time stamps; to the received time stamps. </summary>
+	Dejitter = 2,
+
+	// the smoothing needs to see a minimum number of samples (30-120 seconds worst-case) until the remaining  jitter is consistently below 1ms.
+	/// <summary> Force the time-stamps to be monotonically ascending (only makes sense if timestamps are dejittered). </summary>
+	Monotonize = 4,
+
+	/// <summary> Post-processing is thread-safe (same inlet can be read from by multiple threads); uses somewhat more CPU. </summary>
+	Threadsafe = 8,
+
+	/// <summary> The combination of all possible post-processing options. </summary>
+	All = 1 | 2 | 4 | 8
+}
+
+#endregion
+
+public static class LSL
+{
+	/// <summary> Constant to indicate that a stream has variable sampling rate. </summary>
+	/// <value> Indicate that a stream has variable sampling rate. </value>
+	public const double IRREGULAR_RATE = 0.0;
+
+	/// <summary> Constant to indicate that a sample has the next successive time stamp.
+	/// 
+	/// This is an optional optimization to transmit less data per sample.
+	/// The stamp is then deduced from the preceding one according to the stream's sampling rate
+	/// (in the case of an irregular rate, the same time stamp as before will is assumed). </summary>
+	/// <value> Indicate that a sample has the next successive time stamp. </value>
+	public const double DEDUCED_TIMESTAMP = -1.0;
+
+	/// <summary> A very large time duration (> 1 year) for timeout values. </summary>
+	/// <remarks> Note that significantly larger numbers can cause the timeout to be invalid on some operating systems (e.g., 32-bit UNIX). </remarks>
+	/// <value> A very large time duration (> 1 year). </value>
+	public const double FOREVER = 32000000.0;
+
+	/// <summary> Helper method to dispose a StreamInfo[] array </summary>
+	/// <param name="arr">Array to be disposed</param>
+	public static void DisposeArray(this StreamInfo[] array) { foreach (var si in array) { si.Dispose(); } }
+
+	/// <summary> Version of the lsl protocol.
+	///
+	/// The major version is <see cref="ProtocolVersion"/> / 100; The minor version is <see cref="ProtocolVersion"/> % 100;
+	/// Clients with different minor versions are protocol-compatible with each other while clients with different major versions will refuse to work together.</summary>
+	/// <returns> The protocole version. </returns>
+	public static int ProtocolVersion() { return Dll.lsl_protocol_version(); }
+
+	/// <summary> Version of the liblsl library.
+	///
+	/// The major version is <see cref="LibraryVersion"/> / 100; The minor version is <see cref="LibraryVersion"/> % 100;</summary>
+	/// <returns> The library version. </returns>
+	public static int LibraryVersion() { return Dll.lsl_library_version(); }
+
+	/// <summary> Obtain a local system time stamp in seconds.
+	///
+	/// The resolution is better than a millisecond.
+	/// This reading can be used to assign time stamps to samples as they are being acquired.
+	/// If the "age" of a sample is known at a particular time (e.g., from USB transmission delays),
+	/// it can be used as an offset to LocalClock() to obtain a better estimate of when a sample was actually captured.
+	/// See <c>StreamOutlet::PushSample()</c> for a use case. </summary>
+	/// <returns> The local system time stamp in seconds. </returns>
+	public static double LocalClock() { return Dll.lsl_local_clock(); }
+
+	// ===========================
+	// ==== Resolve Functions ====
+	// ===========================
+
+	/// <summary> Resolve all streams on the network.
+	///
+	/// This function returns all currently available streams from any outlet on the network.
+	/// The network is usually the subnet specified at the local router,
+	/// but may also include a multicast group of machines (given that the network supports it), or list of hostnames.
+	/// These details may optionally be customized by the experimenter in a configuration file  (see Network Connectivity in the LSL wiki).
+	/// This is the default mechanism used by the browsing programs and the recording program. </summary>
+	/// <param name="waitTime"> The waiting time for the operation, in seconds, to search for streams. </param>
+	/// <returns> An array of stream info objects (excluding their desc field), any of which can subsequently be used to open an inlet.
+	/// The full info can be retrieve from the inlet. </returns>
+	/// <remarks> If [waitTime] is too short (less than 0.5s) only a subset (or none) of the outlets that are present on the network may be returned.</remarks>
+	public static StreamInfo[] ResolveStreams(double waitTime = 1.0)
+	{
+		var buf = new IntPtr[1024];
+		var num = Dll.lsl_resolve_all(buf, (uint) buf.Length, waitTime);
+		var res = new StreamInfo[num];
+		for (var k = 0; k < num; k++) { res[k] = new StreamInfo(buf[k]); }
+		return res;
+	}
+
+	/// <summary> Resolve all streams with a specific value for a given property.
+	///
+	/// If the goal is to resolve a specific stream, this method is preferred over resolving all streams and then selecting the desired one.</summary>
+	/// <param name="prop"> The <see cref="StreamInfo"/> property that should have a specific value (e.g., "name", "type", "SourceId", or "desc/manufaturer"). </param>
+	/// <param name="value"> The string value that the property should have (e.g., "EEG" as the type property). </param>
+	/// <param name="minimum"> Optionally return at least this number of streams. </param>
+	/// <param name="timeout"> Optionally a timeout of the operation, in seconds (default: no timeout).
+	/// If the timeout expires, less than the desired number of streams (possibly none) will be returned. </param>
+	/// <returns> An array of matching stream info objects (excluding their meta-data), any of which can subsequently be used to open an inlet. </returns>
+	public static StreamInfo[] ResolveStream(string prop, string value, int minimum = 1, double timeout = FOREVER)
+	{
+		var buf = new IntPtr[1024];
+		var num = Dll.lsl_resolve_byprop(buf, (uint) buf.Length, prop, value, minimum, timeout);
+		var res = new StreamInfo[num];
+		for (var k = 0; k < num; k++) { res[k] = new StreamInfo(buf[k]); }
+		return res;
+	}
+
+	/// <summary> Resolve all streams that match a given predicate.
+	///
+	/// Advanced query that allows to impose more conditions on the retrieved streams;
+	/// the given string is an XPath 1.0 predicate for the info node (omitting the surrounding []'s). </summary>
+	/// <param name="pred"> The predicate string, e.g. "<c>name='BioSemi'</c>" or "<c>type='EEG' and starts-with(name,'BioSemi') and count(info/desc/channel)=32</c>". </param>
+	/// <param name="minimum"> Optionally return at least this number of streams. </param>
+	/// <param name="timeout"> Optionally a timeout of the operation, in seconds (default: no timeout).
+	/// If the timeout expires, less than the desired number of streams (possibly none) will be returned. </param>
+	/// <returns> An array of matching stream info objects (excluding their meta-data), any of which can subsequently be used to open an inlet. </returns>
+	/// <remarks> See Also : [Wikipedia XPath 1.0](http://en.wikipedia.org/w/index.php?title=XPath_1.0). </remarks>
+	public static StreamInfo[] ResolveStream(string pred, int minimum = 1, double timeout = FOREVER)
+	{
+		var buf = new IntPtr[1024];
+		var num = Dll.lsl_resolve_bypred(buf, (uint) buf.Length, pred, minimum, timeout);
+		var res = new StreamInfo[num];
+		for (var k = 0; k < num; k++) { res[k] = new StreamInfo(buf[k]); }
+		return res;
+	}
+
+
+	/// <summary> Check an error condition and throw an exception if appropriate. </summary>
+	/// <param name="code"> The error code. </param>
+	/// <exception cref="TimeoutException"> The operation failed due to a timeout. </exception>
+	/// <exception cref="LostException"> The stream has been lost. </exception>
+	/// <exception cref="ArgumentException"> An argument was incorrectly specified (e.g., wrong format or wrong length). </exception>
+	/// <exception cref="InternalException"> An internal internal error has occurred. </exception>
+	/// <exception cref="Exception"> An unknown error has occurred. </exception>
+	public static void CheckError(int code)
+	{
+		if (code >= 0) { return; }
+		switch (code) {
+			case -1: throw new System.TimeoutException("The operation failed due to a timeout.");
+			case -2: throw new LostException("The stream has been lost.");
+			case -3: throw new System.ArgumentException("An argument was incorrectly specified (e.g., wrong format or wrong length).");
+			case -4: throw new InternalException("An internal internal error has occurred.");
+			default: throw new Exception("An unknown error has occurred.");
+		}
+	}
+}
+
+#region Stream
+
+public abstract class LSLObject : SafeHandle
+{
+	protected IntPtr Obj => handle;
+
+
+	protected LSLObject(IntPtr obj) : base(IntPtr.Zero, true)
+	{
+#if LSL_PRINT_OBJECT_LIFETIMES
+            System.Console.Out.WriteLine($"Created object {obj:X}");
+#endif
+		if (obj == IntPtr.Zero) { throw new InternalException("Error creating object"); }
+		SetHandle(obj);
+	}
+
+	public override bool IsInvalid => handle == IntPtr.Zero;
+
+	/// <summary> To be implemented in inheriting classes: the liblsl function to destroy the internal object </summary>
+	protected abstract void DestroyLSLObject(IntPtr obj);
+
+	protected override bool ReleaseHandle()
+	{
+#if LSL_PRINT_OBJECT_LIFETIMES
+            System.Console.Out.WriteLine($"Destroying object {handle:X}");
+#endif
+		DestroyLSLObject(handle);
+		return true;
+	}
+}
+
+// ==========================
+// === Stream Declaration ===
+// ==========================
+
+/// <summary> The stream_info object stores the declaration of a data stream.
+///
+/// Represents the following information:
+/// 1. stream data format (#channels, channel format)
+/// 1. core information (stream name, content type, sampling rate)
+/// 1. optional meta-data about the stream content (channel labels, measurement units, etc.)
+///
+/// Whenever a program wants to provide a new stream on the lab network,
+/// it will typically first create a stream_info to describe its properties
+/// and then construct a stream_outlet with it to create the stream on the network.
+/// Recipients who discover the outlet can query the stream_info; it is also written to disk when recording the stream
+/// (playing a similar role as a file header).</summary>
+public class StreamInfo : LSLObject
+{
+	/// <summary> Initializes a new instance of the <see cref="StreamInfo"/> object.
+	///
+	/// Core stream information is specified here. Any remaining meta-data can be added later. </summary>
+	/// <param name="name"> Name of the stream. Describes the device (or product series) that this stream makes available (for use by programs, experimenters or data analysts).
+	/// Cannot be empty. </param>
+	/// <param name="type"> Content type of the stream.
+	/// Please see [https://github.com/sccn/xdf/wiki/Meta-Data](https://github.com/sccn/xdf/wiki/Meta-Data) (or web search for: meta-data)
+	/// for pre-defined content-type names, but you can also make up your own.
+	/// The content type is the preferred way to find streams (as opposed to searching by name). </param>
+	/// <param name="channelCount"> Number of channels per sample. This stays constant for the lifetime of the stream. </param>
+	/// <param name="sampling"> The sampling rate (in Hz) as advertised by the data source, if regular (otherwise set to IRREGULAR_RATE). </param>
+	/// <param name="channelFormat"> Format/type of each channel.
+	/// If your channels have different formats, consider supplying multiple streams or use the largest type that can hold them all (such as Double64). </param>
+	/// <param name="sourceId"> Unique identifier of the device or source of the data, if available (such as the serial number).
+	/// This is critical for system robustness since it allows recipients to recover from failure even after the serving app, device or computer crashes
+	/// (just by finding a stream with the same source id on the network again).
+	/// Therefore, it is highly recommended to always try to provide whatever information can uniquely identify the data source itself. </param>
+	public StreamInfo(string        name,                                            string type, int channelCount = 1, double sampling = LSL.IRREGULAR_RATE,
+					  ChannelFormat channelFormat = LSL4Unity.ChannelFormat.Float32, string sourceId = "") :
+		base(Dll.lsl_create_streaminfo(name, type, channelCount, sampling, channelFormat, sourceId)) { }
+
+	/// <summary> Initializes a new instance of the <see cref="StreamInfo"/> class. </summary>
+	/// <param name="handle"> The handle. </param>
+	public StreamInfo(IntPtr handle) : base(handle) { }
+
+	protected override void DestroyLSLObject(IntPtr obj) { Dll.lsl_destroy_streaminfo(obj); }
+
+	// ========================
+	// === Core Information ===
+	// ========================
+	// (these fields are assigned at construction)
+
+	/// <summary> Name of the stream.
+	///
+	/// This is a human-readable name. For streams offered by device modules,
+	/// it refers to the type of device or product series that is generating the data of the stream.
+	/// If the source is an application, the name may be a more generic or specific identifier.
+	/// Multiple streams with the same name can coexist, though potentially at the cost of ambiguity (for the recording app or experimenter). </summary>
+	/// <returns> The name of the stream. </returns>
+	public string Name() { return Marshal.PtrToStringAnsi(Dll.lsl_get_name(Obj)); }
+
+	/// <summary> Content type of the stream.
+	///
+	/// The content type is a short string such as "EEG", "Gaze" which describes the content carried by the channel (if known).
+	/// If a stream contains mixed content this value need not be assigned but may instead be stored in the description of channel types.
+	/// To be useful to applications and automated processing systems using the recommended content types is preferred.
+	/// Content types usually follow those pre-defined in [https://github.com/sccn/xdf/wiki/Meta-Data](https://github.com/sccn/xdf/wiki/Meta-Data) (or web search for: XDF meta-data). </summary>
+	/// <returns> The content type of the stream (in <c>string</c>). </returns>
+	public string Type() { return Marshal.PtrToStringAnsi(Dll.lsl_get_type(Obj)); }
+
+	/// <summary> Number of channels of the stream. A stream has at least one channel; the channel count stays constant for all samples. </summary>
+	/// <returns> The Number of channels of the stream. </returns>
+	public int ChannelCount() { return Dll.lsl_get_channel_count(Obj); }
+
+	/// <summary> Sampling rate of the stream, according to the source (in Hz).
+	///
+	/// If a stream is irregularly sampled, this should be set to IRREGULAR_RATE.
+	/// Note that no data will be lost even if this sampling rate is incorrect or if a device has temporary
+	/// hiccups, since all samples will be recorded anyway (except for those dropped by the device itself). However,
+	/// when the recording is imported into an application, a good importer may correct such errors more accurately
+	/// if the advertised sampling rate was close to the specs of the device. </summary>
+	/// <returns> The Sampling rate of the stream (in <c>double</c>). </returns>
+	public double Sampling() { return Dll.lsl_get_nominal_srate(Obj); }
+
+	/// <summary> Channel format of the stream.
+	///
+	/// All channels in a stream have the same format. However, a device might offer multiple time-synched streams each with its own format. </summary>
+	/// <returns>The hannel format of the stream (in <see cref="LSL4Unity.ChannelFormat"/> enum) </returns>
+	public ChannelFormat ChannelFormat() { return Dll.lsl_get_channel_format(Obj); }
+
+	/// <summary> Unique identifier of the stream's source, if available.
+	///
+	/// The unique source (or device) identifier is an optional piece of information that, if available,
+	/// allows that endpoints(such as the recording program) can re-acquire a stream automatically once it is back online. </summary>
+	/// <returns> The Identifier (in <c>string</c>). </returns>
+	public string SourceId() { return Marshal.PtrToStringAnsi(Dll.lsl_get_source_id(Obj)); }
+
+
+	// ======================================
+	// === Additional Hosting Information ===
+	// ======================================
+	// (these fields are implicitly assigned once bound to an outlet/inlet)
+
+	/// <summary> Protocol version used to deliver the stream. </summary>
+	/// <returns> The protocol version (in <c>int</c>). </returns>
+	public int Version() { return Dll.lsl_get_version(Obj); }
+
+	/// <summary> Creation time stamp of the stream.
+	///
+	/// This is the time stamp when the stream was first created (as determined via LocalClock() on the providing machine). </summary>
+	/// <returns> The Time Stamp (in <c>double</c>). </returns>
+	public double CreatedAt() { return Dll.lsl_get_created_at(Obj); }
+
+	/// <summary> Unique ID of the stream outlet instance (once assigned).
+	///
+	/// This is a unique identifier of the stream outlet, and is guaranteed to be different across multiple instantiations of the same outlet (e.g., after a re-start). </summary>
+	/// <returns> The Unique Identifier (in <c>string</c>). </returns>
+	public string Uid() { return Marshal.PtrToStringAnsi(Dll.lsl_get_uid(Obj)); }
+
+	/// <summary> Session ID for the given stream.
+	///
+	/// The session id is an optional human-assigned identifier of the recording session.
+	/// While it is rarely used, it can be used to prevent concurrent recording activitites on the same sub-network (e.g., in multiple experiment areas)
+	/// from seeing each other's streams (assigned via a configuration file by the experimenter, see Network Connectivity in the LSL wiki). </summary>
+	/// <returns> The Session Identifier (in <c>string</c>). </returns>
+	public string SessionId() { return Marshal.PtrToStringAnsi(Dll.lsl_get_session_id(Obj)); }
+
+	/// <summary> Hostname of the providing machine. </summary>
+	/// <returns> The Hostname (in <c>string</c>). </returns>
+	public string Hostname() { return Marshal.PtrToStringAnsi(Dll.lsl_get_hostname(Obj)); }
+
+	// ========================
+	// === Data Description ===
+	// ========================
+
+	/// <summary> Extended description of the stream.
+	///
+	/// It is highly recommended that at least the channel labels are described here.
+	/// See code examples on the LSL wiki. Other information, such as amplifier settings,
+	/// measurement units if deviating from defaults, setup information, subject information, etc.,
+	/// can be specified here, as well. Meta-data recommendations follow the XDF file format project
+	/// ([https://github.com/sccn/xdf/wiki/Meta-Data](https://github.com/sccn/xdf/wiki/Meta-Data) or web search for: XDF meta-data). </summary>
+	/// <remarks>if you use a stream content type for which meta-data recommendations exist, please
+	/// try to lay out your meta-data in agreement with these recommendations for compatibility with other applications. </remarks>
+	/// <returns> A <see cref="XMLElement "/> containing the description. </returns>
+	public XMLElement Desc() { return new XMLElement(Dll.lsl_get_desc(Obj)); }
+
+	/// <summary> Retrieve the entire <see cref="StreamInfo"/> in XML format.
+	///
+	/// This yields an XML document (in string form) whose top-level element is &lt;info&gt;. The info element contains
+	/// one element for each field of the stream_info class, including:
+	///  a) the core elements <c>Name</c>, <c>Type</c>, <c>ChannelCount</c>, <c>Sampling</c>, <c>ChannelFormat</c>, <c>SourceId</c>
+	///  b) the misc elements <c>Version</c>, <c>CreatedAt</c>, <c>Uid</c>, <c>SessionId</c>, <c>v4address</c>, <c>v4data_port</c>, <c>v4service_port</c>, <c>v6address</c>, <c>v6data_port</c>, <c>v6service_port</c>
+	///  c) the extended description element <c>desc</c> with user-defined sub-elements. </summary>
+	/// <returns> A <c>string</c> with the entire <see cref="StreamInfo"/>. </returns>
+	public string AsXML()
+	{
+		var pXml = Dll.lsl_get_xml(Obj);
+		var res  = Marshal.PtrToStringAnsi(pXml);
+		Dll.lsl_destroy_string(pXml);
+		return res;
+	}
+}
+
+
+// =======================
+// ==== Stream Outlet ====
+// =======================
+
+/// <summary> A stream outlet.
+///
+/// Outlets are used to make streaming data (and the meta-data) available on the lab network. </summary>
+public class StreamOutlet : LSLObject
+{
+	/// <summary> Initializes a new instance of <see cref="StreamOutlet"/>. This makes the stream discoverable. </summary>
+	/// <param name="info"> The stream information to use for creating this stream. Stays constant over the lifetime of the outlet. </param>
+	/// <param name="chunkSize"> Optionally the desired chunk granularity (in samples) for transmission.
+	/// If unspecified, each push operation yields one chunk. Inlets can override this setting. </param>
+	/// <param name="maxBuffered">Optionally the maximum amount of data to buffer (in seconds if there is a nominal sampling rate, otherwise x100 in samples).
+	/// The default is 6 minutes of data. </param>
+	public StreamOutlet(StreamInfo info, int chunkSize = 0, int maxBuffered = 360) : 
+		base(Dll.lsl_create_outlet(info.DangerousGetHandle(), chunkSize, maxBuffered)) { }
+
+	protected override void DestroyLSLObject(IntPtr obj) { Dll.lsl_destroy_outlet(obj); }
+
+	// ========================================
+	// === Pushing a sample into the outlet ===
+	// ========================================
+
+	/// <summary> Push an array of values as a sample into the outlet. </summary>
+	/// <param name="data"> An array of values to push (one for each channel). </param>
+	/// <param name="time"> Optionally the capture time of the sample, in agreement with <see cref="LocalClock"/>; if omitted, the current time is used. </param>
+	/// <param name="pushthrough"> Optionally whether to push the sample through to the receivers instead of buffering it with subsequent samples.
+	/// Note that the chunk_size, if specified at outlet construction, takes precedence over the pushthrough flag. </param>
+	public void PushSample(float[] data, double time = 0.0, bool pushthrough = true) { Dll.lsl_push_sample_ftp(Obj, data, time, pushthrough ? 1 : 0); }
+
+	/// <inheritdoc cref="PushSample(float[],double,bool)"/>
+	/// <param name="data"> An array of values to push (one for each channel). </param>
+	public void PushSample(double[] data, double time = 0.0, bool pushthrough = true) { Dll.lsl_push_sample_dtp(Obj, data, time, pushthrough ? 1 : 0); }
+
+	/// <inheritdoc cref="PushSample(float[],double,bool)"/>
+	/// <param name="data"> An array of values to push (one for each channel). </param>
+	public void PushSample(int[] data, double time = 0.0, bool pushthrough = true) { Dll.lsl_push_sample_itp(Obj, data, time, pushthrough ? 1 : 0); }
+
+	/// <inheritdoc cref="PushSample(float[],double,bool)"/>
+	/// <param name="data"> An array of values to push (one for each channel). </param>
+	public void PushSample(short[] data, double time = 0.0, bool pushthrough = true) { Dll.lsl_push_sample_stp(Obj, data, time, pushthrough ? 1 : 0); }
+
+	/// <inheritdoc cref="PushSample(float[],double,bool)"/>
+	/// <param name="data"> An array of values to push (one for each channel). </param>
+	public void PushSample(char[] data, double time = 0.0, bool pushthrough = true) { Dll.lsl_push_sample_ctp(Obj, data, time, pushthrough ? 1 : 0); }
+
+	/// <inheritdoc cref="PushSample(float[],double,bool)"/>
+	/// <param name="data"> An array of values to push (one for each channel). </param>
+	public void PushSample(string[] data, double time = 0.0, bool pushthrough = true) { Dll.lsl_push_sample_strtp(Obj, data, time, pushthrough ? 1 : 0); }
+
+	// ===================================================
+	// === Pushing an chunk of samples into the outlet ===
+	// ===================================================
+
+	/// <summary> Push a chunk of samples into the outlet. Single time provided. </summary>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	/// <param name="time"> Optionally the capture time of the sample, in agreement with <see cref="LocalClock"/>; if omitted, the current time is used. </param>
+	/// <param name="pushthrough"> Optionally whether to push the sample through to the receivers instead of buffering it with subsequent samples.
+	/// Note that the chunkSize, if specified at outlet construction, takes precedence over the pushthrough flag. </param>
+	public void PushChunk(float[,] data, double time = 0.0, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_ftp(Obj, data, (uint) data.Length, time, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double,bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(double[,] data, double time = 0.0, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_dtp(Obj, data, (uint) data.Length, time, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double,bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(int[,] data, double time = 0.0, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_itp(Obj, data, (uint) data.Length, time, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double,bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(short[,] data, double time = 0.0, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_stp(Obj, data, (uint) data.Length, time, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double,bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(char[,] data, double time = 0.0, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_ctp(Obj, data, (uint) data.Length, time, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double,bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(string[,] data, double time = 0.0, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_strtp(Obj, data, (uint) data.Length, time, pushthrough ? 1 : 0);
+	}
+
+
+	/// <summary> Push a chunk of multiplexed samples into the outlet. One time per sample is provided. </summary>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(float[,] data, double[] times, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_ftnp(Obj, data, (uint) data.Length, times, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double[],bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(double[,] data, double[] times, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_dtnp(Obj, data, (uint) data.Length, times, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double[],bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(int[,] data, double[] times, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_itnp(Obj, data, (uint) data.Length, times, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double[],bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(short[,] data, double[] times, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_stnp(Obj, data, (uint) data.Length, times, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double[],bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(char[,] data, double[] times, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_ctnp(Obj, data, (uint) data.Length, times, pushthrough ? 1 : 0);
+	}
+
+	/// <inheritdoc cref="PushChunk(float[,],double[],bool)"/>
+	/// <param name="data"> A rectangular array of values for multiple samples. </param>
+	public void PushChunk(string[,] data, double[] times, bool pushthrough = true)
+	{
+		Dll.lsl_push_chunk_strtnp(Obj, data, (uint) data.Length, times, pushthrough ? 1 : 0);
+	}
+
+
+	// ===============================
+	// === Miscellaneous Functions ===
+	// ===============================
+
+	/// <summary> Check whether consumers are currently registered.
+	///
+	///  While it does not hurt, there is technically no reason to push samples if there is no consumer. </summary>
+	/// <returns> <c>true</c> or <c>false</c>. </returns>
+	public bool HaveConsumers() { return Dll.lsl_have_consumers(Obj) > 0; }
+
+	/// <summary> Wait until some consumer shows up (without wasting resources). </summary>
+	/// <param name="timeout"> The timeout. </param>
+	/// <returns> True if the wait was successful, false if the timeout expired. </returns>
+	public bool WaitForConsumers(double timeout = LSL.FOREVER) { return Dll.lsl_wait_for_consumers(Obj, timeout) > 0; }
+
+	/// <summary> Retrieve the stream info provided by this outlet.
+	///
+	/// This is what was used to create the stream (and also has the Additional Network Information fields assigned). </summary>
+	/// <returns> A <see cref="StreamInfo"/> </returns>
+	public StreamInfo Info() { return new StreamInfo(Dll.lsl_get_info(Obj)); }
+}
+
+
+// ======================
+// ==== Stream Inlet ====
+// ======================
+
+/// <summary> A stream inlet.
+///
+/// Inlets are used to receive streaming data (and meta-data) from the lab network. </summary>
+public class StreamInlet : LSLObject
+{
+	/// <summary> Initializes a new instance of <see cref="StreamInlet"/> from a resolved stream info. </summary>
+	/// <param name="info"> A resolved stream info object (as coming from one of the resolver functions). </param>
+	/// <param name="maxBuflen"> Optionally the maximum amount of data to buffer
+	/// (in seconds if there is a nominal sampling rate, otherwise x100 in samples).
+	/// Recording applications want to use a fairly large buffer size here,
+	/// while real-time applications would only buffer as much as they need to perform their next calculation. </param>
+	/// <param name="maxChunklen"> Optionally the maximum size, in samples, at which chunks are transmitted
+	/// (the default corresponds to the chunk sizes used by the sender).
+	/// Recording applications can use a generous size here (leaving it to the network how to pack things),
+	/// while real-time applications may want a finer (perhaps 1-sample) granularity.
+	/// If left unspecified (=0), the sender determines the chunk granularity. </param>
+	/// <param name="recover"> Try to silently recover lost streams that are recoverable (=those that that have a SourceId set).
+	/// In all other cases (recover is false or the stream is not recoverable) functions may throw a <see cref="LostException"/>
+	/// if the stream's source is lost (e.g., due to an app or computer crash). </param>
+	/// <remarks> The <see cref="StreamInlet"/> may also be constructed with a fully-specified <see cref="StreamInfo"/>
+	/// if the desired channel format and count is already known up-front,
+	/// but this is strongly discouraged and should only ever be done if there is no time to resolve the stream up-front
+	/// (e.g., due to limitations in the client program). </remarks>
+	public StreamInlet(StreamInfo        info, int maxBuflen = 360, int maxChunklen = 0, bool recover = true,
+					   ProcessingOptions postproc_flags = ProcessingOptions.None) : 
+		base(Dll.lsl_create_inlet(info.DangerousGetHandle(), maxBuflen, maxChunklen, recover ? 1 : 0))
+	{ 
+		Dll.lsl_set_postprocessing(Obj, postproc_flags);
+	}
+
+	protected override void DestroyLSLObject(IntPtr obj) { Dll.lsl_destroy_inlet(obj); }
+
+	/// <summary> Retrieve the complete information of the given stream, including the extended description.
+	///
+	/// Can be invoked at any time of the stream's lifetime.  </summary>
+	/// <param name="timeout"> Optional timeout of the operation (default: no timeout). </param>
+	/// <returns> <see cref="StreamInfo"/>. </returns>
+	/// <exception cref="TimeoutException"> If the timeout expires. </exception>
+	/// <exception cref="LostException"> If the stream source has been lost. </exception>
+	public StreamInfo Info(double timeout = LSL.FOREVER)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_get_fullinfo(Obj, timeout, ref ec);
+		LSL.CheckError(ec);
+		return new StreamInfo(res);
+	}
+
+	/// <summary> Subscribe to the data stream.
+	///
+	/// All samples pushed in at the other end from this moment onwards will be queued and
+	/// eventually be delivered in response to <see cref="PullSample(float[],double)"/> or <see cref="PullChunk(float[,],double[],double)"/> calls.
+	/// Pulling a sample without some preceding OpenStream is permitted (the stream will then be opened implicitly). </summary>
+	/// <param name="timeout"> Optional timeout of the operation (default: no timeout). </param>
+	/// <exception cref="TimeoutException"> If the timeout expires. </exception>
+	/// <exception cref="LostException"> If the stream source has been lost. </exception>
+	public void OpenStream(double timeout = LSL.FOREVER)
+	{
+		var ec = 0;
+		Dll.lsl_open_stream(Obj, timeout, ref ec);
+		LSL.CheckError(ec);
+	}
+
+	/// <summary> Drop the current data stream.
+	/// 
+	/// All samples that are still buffered or in flight will be dropped and transmission
+	/// and buffering of data for this inlet will be stopped. If an application stops being
+	/// interested in data from a source (temporarily or not) but keeps the outlet alive,
+	/// it should call CloseStream() to not waste unnecessary system and network resources. </summary>
+	public void CloseStream() { Dll.lsl_close_stream(Obj); }
+
+	/// <summary> Retrieve an estimated time correction offset for the given stream.
+	///
+	/// The first call to this function takes several miliseconds until a reliable first estimate is obtained.
+	/// Subsequent calls are instantaneous (and rely on periodic background updates).
+	/// The precision of these estimates should be below 1 ms (empirically within +/-0.2 ms). </summary>
+	/// <param name="timeout"> Optional timeout to acquire the first time-correction estimate (default: no timeout). </param>
+	/// <returns> The time correction estimate. This is the number that needs to be added to a time stamp
+	/// that was remotely generated via <c>lsl_local_clock()</c> to map it into the local clock domain of this machine. </returns>
+	/// <exception cref="TimeoutException"> If the timeout expires. </exception>
+	/// <exception cref="LostException"> If the stream source has been lost. </exception>
+	public double TimeCorrection(double timeout = LSL.FOREVER)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_time_correction(Obj, timeout, ref ec);
+		LSL.CheckError(ec);
+		return res;
+	}
+
+	// =======================================
+	// === Pulling a sample from the inlet ===
+	// =======================================
+
+	/// <summary> Pull a sample from the inlet and read it into an array of values. Handles type checking and conversion. </summary>
+	/// <param name="sample"> An array to hold the resulting values. </param>
+	/// <param name="timeout"> Optional, the timeout for this operation, if any. Use 0.0 to make the function non-blocking. </param>
+	/// <returns>The capture time of the sample on the remote machine, or 0.0 if no new sample was available.
+	/// To remap this time stamp to the local clock, add the value returned by <see cref="TimeCorrection"/> to it. </returns>
+	/// <exception cref="LostException"> If the stream source has been lost. </exception>
+	public double PullSample(float[] sample, double timeout = LSL.FOREVER)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_sample_f(Obj, sample, sample.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return res;
+	}
+
+	/// <inheritdoc cref="PullSample(float[],double)"/>
+	/// <param name="sample"> An array to hold the resulting values. </param>
+	public double PullSample(double[] sample, double timeout = LSL.FOREVER)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_sample_d(Obj, sample, sample.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return res;
+	}
+
+	/// <inheritdoc cref="PullSample(float[],double)"/>
+	/// <param name="sample"> An array to hold the resulting values. </param>
+	public double PullSample(int[] sample, double timeout = LSL.FOREVER)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_sample_i(Obj, sample, sample.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return res;
+	}
+
+	/// <inheritdoc cref="PullSample(float[],double)"/>
+	/// <param name="sample"> An array to hold the resulting values. </param>
+	public double PullSample(short[] sample, double timeout = LSL.FOREVER)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_sample_s(Obj, sample, sample.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return res;
+	}
+
+	/// <inheritdoc cref="PullSample(float[],double)"/>
+	/// <param name="sample"> An array to hold the resulting values. </param>
+	public double PullSample(char[] sample, double timeout = LSL.FOREVER)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_sample_c(Obj, sample, sample.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return res;
+	}
+
+	/// <inheritdoc cref="PullSample(float[],double)"/>
+	/// <param name="sample"> An array to hold the resulting values. </param>
+	public double PullSample(string[] sample, double timeout = LSL.FOREVER)
+	{
+		var ec  = 0;
+		var tmp = new IntPtr[sample.Length];
+		var res = Dll.lsl_pull_sample_str(Obj, tmp, tmp.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		try {
+			for (var k = 0; k < tmp.Length; k++) { sample[k] = Marshal.PtrToStringAnsi(tmp[k]); }
+		}
+		finally {
+			foreach (var t in tmp) { Dll.lsl_destroy_string(t); }
+		}
+		return res;
+	}
+
+
+	// =================================================
+	// === Pulling a chunk of samples from the inlet ===
+	// =================================================
+
+	/// <summary> Pull a chunk of data from the inlet. </summary>
+	/// <param name="buffer"> A pre-allocated buffer where the channel data shall be stored. </param>
+	/// <param name="times"> A pre-allocated buffer where time stamps shall be stored. </param>
+	/// <param name="timeout"> Optionally the timeout for this operation, if any.
+	/// When the timeout expires, the function may return before the entire buffer is filled.
+	/// The default value of 0.0 will retrieve only data available for immediate pickup. </param>
+	/// <returns> Number of samples written to the data and timestamp buffers.</returns>
+	/// <exception cref="LostException"> If the stream source has been lost. </exception>
+	public int PullChunk(float[,] buffer, double[] times, double timeout = 0.0)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_chunk_f(Obj, buffer, times, (uint) buffer.Length, (uint) times.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return (int) res / buffer.GetLength(1);
+	}
+
+	/// <inheritdoc cref="PullChunk(float[,],double[],double)"/>
+	/// <param name="buffer"> A pre-allocated buffer where the channel data shall be stored. </param>
+	public int PullChunk(double[,] buffer, double[] times, double timeout = 0.0)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_chunk_d(Obj, buffer, times, (uint) buffer.Length, (uint) times.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return (int) res / buffer.GetLength(1);
+	}
+
+	/// <inheritdoc cref="PullChunk(float[,],double[],double)"/>
+	/// <param name="buffer"> A pre-allocated buffer where the channel data shall be stored. </param>
+	public int PullChunk(int[,] buffer, double[] times, double timeout = 0.0)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_chunk_i(Obj, buffer, times, (uint) buffer.Length, (uint) times.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return (int) res / buffer.GetLength(1);
+	}
+
+	/// <inheritdoc cref="PullChunk(float[,],double[],double)"/>
+	/// <param name="buffer"> A pre-allocated buffer where the channel data shall be stored. </param>
+	public int PullChunk(short[,] buffer, double[] times, double timeout = 0.0)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_chunk_s(Obj, buffer, times, (uint) buffer.Length, (uint) times.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return (int) res / buffer.GetLength(1);
+	}
+
+	/// <inheritdoc cref="PullChunk(float[,],double[],double)"/>
+	/// <param name="buffer"> A pre-allocated buffer where the channel data shall be stored. </param>
+	public int PullChunk(char[,] buffer, double[] times, double timeout = 0.0)
+	{
+		var ec  = 0;
+		var res = Dll.lsl_pull_chunk_c(Obj, buffer, times, (uint) buffer.Length, (uint) times.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		return (int) res / buffer.GetLength(1);
+	}
+
+	/// <inheritdoc cref="PullChunk(float[,],double[],double)"/>
+	/// <param name="buffer"> A pre-allocated buffer where the channel data shall be stored. </param>
+	public int PullChunk(string[,] buffer, double[] times, double timeout = 0.0)
+	{
+		var ec  = 0;
+		var tmp = new IntPtr[buffer.GetLength(0), buffer.GetLength(1)];
+		var res = Dll.lsl_pull_chunk_str(Obj, tmp, times, (uint) tmp.Length, (uint) times.Length, timeout, ref ec);
+		LSL.CheckError(ec);
+		try {
+			for (var s = 0; s < tmp.GetLength(0); s++) {
+				for (var c = 0; c < tmp.GetLength(1); c++) { buffer[s, c] = Marshal.PtrToStringAnsi(tmp[s, c]); }
+			}
+		}
+		finally {
+			for (var s = 0; s < tmp.GetLength(0); s++) {
+				for (var c = 0; c < tmp.GetLength(1); c++) { Dll.lsl_destroy_string(tmp[s, c]); }
+			}
+		}
+		return (int) res / buffer.GetLength(1);
+	}
+
+	/// <summary>  Query whether samples are currently available for immediate pickup. </summary>
+	/// <returns> Number of samples available. </returns>
+	/// <remarks> that it is not a good idea to use <see cref="SamplesAvailable"/> to determine whether a <c>pull_*()</c> call would block:
+	/// to be sure, set the pull timeout to 0.0 or an acceptably low value.
+	/// If the underlying implementation supports it, the value will be the number of samples available (otherwise it will be 1 or 0). </remarks>
+	public int SamplesAvailable() { return (int) Dll.lsl_samples_available(Obj); }
+
+	/// <summary> Query whether the clock was potentially reset since the last call to <see cref="WasClockReset"/>.
+	///
+	/// This is a rarely-used function that is only useful to applications that combine multiple <see cref="TimeCorrection"/> values to estimate precise clock drift;
+	/// it allows to tolerate cases where the source machine was hot-swapped or restarted in between two measurements. </summary>
+	/// <returns> <c>true</c> if clock was reset... </returns>
+	public bool WasClockReset() { return (int) Dll.lsl_was_clock_reset(Obj) != 0; }
+}
+
+// ===========================
+// === Continuous Resolver ===
+// ===========================
+
+
+/// <summary> A convenience class that resolves streams continuously in the background throughout
+/// its lifetime and which can be queried at any time for the set of streams that are currently  visible on the network. </summary>
+public class ContinuousResolver : LSLObject
+{
+	/// <summary> Initializes a new instance of the <see cref="ContinuousResolver"/> class that resolves all streams on the network.
+	/// 
+	/// This is analogous to the functionality offered by the free function <see cref="ResolveStreams"/>.</summary>
+	/// <param name="forgetAfter"> When a stream is no longer visible on the network (e.g., because it was shut down),
+	/// this is the time in seconds after which it is no longer reported by the resolver. </param>
+	public ContinuousResolver(double forgetAfter = 5.0) : base(Dll.lsl_create_continuous_resolver(forgetAfter)) { }
+
+	/// <summary> Initializes a new instance of the <see cref="ContinuousResolver"/> class that resolves all streams with a specific value for a given property.
+	/// 
+	/// This is analogous to the functionality provided by the free function <see cref="ResolveStream(string,string,int,double)"/>.</summary>
+	/// <param name="prop"> The <see cref="StreamInfo"/> property that should have a specific value (e.g., "name", "type", "SourceId", or "desc/manufaturer"). </param>
+	/// <param name="value"> The string value that the property should have (e.g., "EEG" as the type property). </param>
+	/// <param name="forgetAfter"> When a stream is no longer visible on the network (e.g., because it was shut down),
+	/// this is the time in seconds after which it is no longer reported by the resolver. </param>
+	public ContinuousResolver(string prop, string value, double forgetAfter = 5.0) :
+		base(Dll.lsl_create_continuous_resolver_byprop(prop, value, forgetAfter)) { }
+
+	/// <summary> Initializes a new instance of the <see cref="ContinuousResolver"/> class that resolves all streams that match a given XPath 1.0 predicate.
+	/// 
+	/// This is analogous to the functionality provided by the free function <see cref="ResolveStream(string,int,double)"/>. </summary>
+	/// <param name="pred"> The predicate string, e.g. "name='BioSemi'" or "type='EEG' and starts-with(name,'BioSemi') and count(info/desc/channel)=32" </param>
+	/// <param name="forgetAfter"> When a stream is no longer visible on the network (e.g., because it was shut down),
+	/// this is the time in seconds after which it is no longer reported by the resolver. </param>
+	public ContinuousResolver(string pred, double forgetAfter = 5.0) : base(Dll.lsl_create_continuous_resolver_bypred(pred, forgetAfter)) { }
+
+
+	protected override void DestroyLSLObject(IntPtr obj) { Dll.lsl_destroy_continuous_resolver(obj); }
+
+	/// <summary> Obtain the set of currently present streams on the network (i.e. resolve result). </summary>
+	/// <returns> An array of matching stream info objects (excluding their meta-data), any of which can subsequently be used to open an inlet. </returns>
+	public StreamInfo[] Results()
+	{
+		var buf = new IntPtr[1024];
+		var num = Dll.lsl_resolver_results(Obj, buf, (uint) buf.Length);
+		var res = new StreamInfo[num];
+		for (var k = 0; k < num; k++) { res[k] = new StreamInfo(buf[k]); }
+		return res;
+	}
+}
+
+#endregion
+
+// =====================
+// ==== XML Element ====
+// =====================
+
+/// <summary> A lightweight XML element tree; models the <see cref="StreamInfo.Desc"/> field of <see cref="StreamInfo"/>.
+///
+/// Has a name and can have multiple named children or have text content as value; attributes are omitted.
+/// Insider note: The interface is modeled after a subset of pugixml's node type and is compatible with it. </summary>
+/// <remarks> See Also : [http://pugixml.googlecode.com/svn/tags/latest/docs/manual/access.html](http://pugixml.googlecode.com/svn/tags/latest/docs/manual/access.html). </remarks>
+public struct XMLElement
+{
+	/// <summary> Initializes a new instance of <see cref="XMLElement"/> struct. </summary>
+	/// <param name="handle"> The handle. </param>
+	public XMLElement(IntPtr handle) { _obj = handle; }
+
+	// === Tree Navigation ===
+
+	/// <summary> Get the first child of the element. </summary>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement FirstChild() { return new XMLElement(Dll.lsl_first_child(_obj)); }
+
+	/// <summary> Get the last child of the element. </summary>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement LastChild() { return new XMLElement(Dll.lsl_last_child(_obj)); }
+
+	/// <summary> Get the next sibling in the children list of the parent node. </summary>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement NextSibling() { return new XMLElement(Dll.lsl_next_sibling(_obj)); }
+
+	/// <summary> Get the previous sibling in the children list of the parent node. </summary>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement PreviousSibling() { return new XMLElement(Dll.lsl_previous_sibling(_obj)); }
+
+	/// <summary> Get the parent node. </summary>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement Parent() { return new XMLElement(Dll.lsl_parent(_obj)); }
+
+
+	// === Tree Navigation by Name ===
+
+	/// <summary> Get a child with a specified name. </summary>
+	/// <param name="name"> The child name. </param>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement Child(string name) { return new XMLElement(Dll.lsl_child(_obj, name)); }
+
+	/// <summary> Get the next sibling with the specified name. </summary>
+	/// <param name="name"> The next sibling name. </param>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement NextSibling(string name) { return new XMLElement(Dll.lsl_next_sibling_n(_obj, name)); }
+
+	/// <summary> Get the previous sibling with the specified name. </summary>
+	/// <param name="name"> The previous sibling name. </param>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement PreviousSibling(string name) { return new XMLElement(Dll.lsl_previous_sibling_n(_obj, name)); }
+
+
+	// === Content Queries ===
+
+	/// <summary> Whether this node is empty. </summary>
+	/// <returns> <c>true</c> or <c>false</c>. </returns>
+	public bool Empty() { return Dll.lsl_empty(_obj) != 0; }
+
+	/// <summary> Whether this is a text body (instead of an XML element). True both for plain char data and CData. </summary>
+	/// <returns> <c>true</c> or <c>false</c>. </returns>
+	public bool IsText() { return Dll.lsl_is_text(_obj) != 0; }
+
+	/// <summary> Name of the element. </summary>
+	/// <returns> the name as <c>string</c>. </returns>
+	public string Name() { return Marshal.PtrToStringAnsi(Dll.lsl_name(_obj)); }
+
+	/// <summary> Value of the element. </summary>
+	/// <returns> the value as <c>string</c>. </returns>
+	public string Value() { return Marshal.PtrToStringAnsi(Dll.lsl_value(_obj)); }
+
+	/// <summary> Get child value (value of the first child that is text). </summary>
+	/// <returns> the child value as <c>string</c>. </returns>
+	public string ChildValue() { return Marshal.PtrToStringAnsi(Dll.lsl_child_value(_obj)); }
+
+	/// <summary> Get child value of a child with a specified name. </summary>
+	/// <param name="name"> The child name. </param>
+	/// <returns> the child value as <c>string</c>. </returns>
+	public string ChildValue(string name) { return Marshal.PtrToStringAnsi(Dll.lsl_child_value_n(_obj, name)); }
+
+
+	// === Modification ===
+
+	/// <summary> Append a child node with a given name, which has a (nameless) plain-text child with the given text value. </summary>
+	/// <param name="name"> The child name. </param>
+	/// <param name="value"> The child value. </param>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement AppendChildValue(string name, string value) { return new XMLElement(Dll.lsl_append_child_value(_obj, name, value)); }
+
+	/// <summary> Prepend a child node with a given name, which has a (nameless) plain-text child with the given text value. </summary>
+	/// <param name="name"> The child name. </param>
+	/// <param name="value"> The child value. </param>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement PrependChildValue(string name, string value) { return new XMLElement(Dll.lsl_prepend_child_value(_obj, name, value)); }
+
+	/// <summary> Set the text value of the (nameless) plain-text child of a named child node. </summary>
+	/// <param name="name"> The child name. </param>
+	/// <param name="value"> The child value. </param>
+	/// <returns> True if the wait was successful, false otherwise. </returns>
+	public bool SetChildValue(string name, string value) { return Dll.lsl_set_child_value(_obj, name, value) != 0; }
+
+	/// <summary> Set the element's name. </summary>
+	/// <param name="name"> The new name. </param>
+	/// <returns> <c>false</c> if the node is empty. </returns>
+	public bool SetName(string name) { return Dll.lsl_set_name(_obj, name) != 0; }
+
+	/// <summary> Set the element's value. </summary>
+	/// <param name="value"> The new value. </param>
+	/// <returns> <c>false</c> if the node is empty. </returns>
+	public bool SetValue(string value) { return Dll.lsl_set_value(_obj, value) != 0; }
+
+	/// <summary> Append a child element with the specified name. </summary>
+	/// <param name="name"> The child name. </param>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement AppendChild(string name) { return new XMLElement(Dll.lsl_append_child(_obj, name)); }
+
+	/// <summary> Prepend a child element with the specified name. </summary>
+	/// <param name="name"> The child name. </param>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement PrependChild(string name) { return new XMLElement(Dll.lsl_prepend_child(_obj, name)); }
+
+	/// <summary> Append a copy of the specified element as a child. </summary>
+	/// <param name="e"> The element to copy. </param>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement AppendCopy(XMLElement e) { return new XMLElement(Dll.lsl_append_copy(_obj, e._obj)); }
+
+	/// <summary> Prepend a child element with the specified name. </summary>
+	/// <param name="e"> The element to copy. </param>
+	/// <returns> New <see cref="XMLElement"/>. </returns>
+	public XMLElement PrependCopy(XMLElement e) { return new XMLElement(Dll.lsl_prepend_copy(_obj, e._obj)); }
+
+	/// <summary> Remove a child element with the specified name. </summary>
+	/// <param name="name"> The child name. </param>
+	public void RemoveChild(string name) { Dll.lsl_remove_child_n(_obj, name); }
+
+	/// <summary> Remove a specified child element. </summary>
+	/// <param name="e"> The element to remove. </param>
+	public void RemoveChild(XMLElement e) { Dll.lsl_remove_child(_obj, e._obj); }
+
+	private readonly IntPtr _obj;
+}
+
+// =======================
+// === Exception Types ===
+// =======================
+
+#region Exception Types
+
+/// <summary> Exception class that indicates that a stream inlet's source has been irrecoverably lost. </summary>
+/// <seealso cref="System.Exception" />
+public class LostException : Exception
+{
+	public LostException(string               message = "", Exception        inner = null) { }
+	protected LostException(SerializationInfo info,         StreamingContext context) { }
+}
+
+/// <summary> Exception class that indicates that an internal error has occurred inside liblsl. </summary>
+/// <seealso cref="System.Exception" />
+public class InternalException : Exception
+{
+	public InternalException(string               message = "", Exception        inner = null) { }
+	protected InternalException(SerializationInfo info,         StreamingContext context) { }
+}
+
+#endregion
+
+#region Internal: C library function definitions
+
+internal static class Dll
+{
 #if (UNITY_EDITOR_WIN && UNITY_EDITOR_64)
-            const string libname = "liblsl64";
+	private const string LIBNAME = "liblsl64";
 #elif UNITY_EDITOR_WIN
-            const string libname = "liblsl32";
+	private const string LIBNAME = "liblsl32";
 #elif UNITY_STANDALONE_WIN
-            // a build hook will took care that the correct dll will be renamed after a successfull build 
-            const string libname =  "liblsl";
-#elif (UNITY_EDITOR_LINUX && UNITY_EDITOR_64)
-            const string libname = "lsl64";
+	// a build hook will took care that the correct dll will be renamed after a successfull build
+	private const string LIBNAME = "liblsl";
+#elif (UNITY_EDITOR_LINUX && UNITY_EDITOR_64) || UNITY_STANDALONE_LINUX
+	private const string LIBNAME = "liblsl64.so";
 #elif UNITY_EDITOR_LINUX
-            const string libname = "liblsl32.so";
+	private const string LIBNAME = "liblsl32.so";
 #elif UNITY_STANDALONE_LINUX
-            // a build hook will took care that the correct dll will be renamed after a successfull build 
-            const string libname =  "lsl";
+	private const string LIBNAME = "liblsl.so";
 #elif Unity_EDITOR_OSX || UNITY_STANDALONE_OSX
-            //32-bit dylib no longer provided.
-            const string libname = "liblsl64";
+	//32-bit dylib no longer provided.
+	private const string LIBNAME = "liblsl64";
 #elif UNITY_STANDALONE_OSX
-            const string libname = "liblsl.bundle";
+	private const string LIBNAME = "liblsl";
 #elif UNITY_ANDROID
-            const string libname = "liblsl32.dll";
+	private const string LIBNAME = "lslAndroid";
 #endif
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_protocol_version();
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_library_version();
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_local_clock();
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_create_streaminfo(string name, string type, int channel_count, double nominal_srate, channel_format_t channel_format, string source_id);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_destroy_streaminfo(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_name(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_type(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_get_channel_count(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_get_nominal_srate(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern channel_format_t lsl_get_channel_format(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_source_id(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_get_version(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_get_created_at(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_uid(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_session_id(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_hostname(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_desc(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_xml(IntPtr info);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_create_outlet(IntPtr info, int chunk_size, int max_buffered);
- 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern void lsl_destroy_outlet(IntPtr obj);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_sample_ftp(IntPtr obj, float[] data, double timestamp, int pushthrough);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_sample_dtp(IntPtr obj, double[] data, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_sample_itp(IntPtr obj, int[] data, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_sample_stp(IntPtr obj, short[] data, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_sample_ctp(IntPtr obj, char[] data, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_sample_strtp(IntPtr obj, string[] data, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_sample_buftp(IntPtr obj, char[][] data, uint[] lengths, double timestamp, int pushthrough);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_ftp(IntPtr obj, float[,] data, uint data_elements, double timestamp, int pushthrough);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_ftnp(IntPtr obj, float[,] data, uint data_elements, double[] timestamps, int pushthrough);
-
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_dtp(IntPtr obj, double[,] data, uint data_elements, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_dtnp(IntPtr obj, double[,] data, uint data_elements, double[] timestamps, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_itp(IntPtr obj, int[,] data, uint data_elements, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_itnp(IntPtr obj, int[,] data, uint data_elements, double[] timestamps, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_stp(IntPtr obj, short[,] data, uint data_elements, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_stnp(IntPtr obj, short[,] data, uint data_elements, double[] timestamps, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_ctp(IntPtr obj, char[,] data, uint data_elements, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_ctnp(IntPtr obj, char[,] data, uint data_elements, double[] timestamps, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_strtp(IntPtr obj, string[,] data, uint data_elements, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_strtnp(IntPtr obj, string[,] data, uint data_elements, double[] timestamps, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_buftp(IntPtr obj, char[][] data, uint[] lengths, uint data_elements, double timestamp, int pushthrough);
-        
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_push_chunk_buftnp(IntPtr obj, char[][] data, uint[] lengths, uint data_elements, double[] timestamps, int pushthrough);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_protocol_version();
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_have_consumers(IntPtr obj);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_library_version();
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_wait_for_consumers(IntPtr obj);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_local_clock();
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_info(IntPtr obj);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_create_streaminfo(string name, string type, int channelCount, double sampling, ChannelFormat channelFormat,
+													  string sourceId);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_resolve_all(IntPtr[] buffer, uint buffer_elements, double wait_time);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_destroy_streaminfo(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_resolve_byprop(IntPtr[] buffer, uint buffer_elements, string prop, string value, int minimum, double wait_time);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_name(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_resolve_bypred(IntPtr[] buffer, uint buffer_elements, string pred, int minimum, double wait_time);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_type(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_create_inlet(IntPtr info, int max_buflen, int max_chunklen, int recover);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_get_channel_count(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern void lsl_destroy_inlet(IntPtr obj);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_get_nominal_srate(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_get_fullinfo(IntPtr obj, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern ChannelFormat lsl_get_channel_format(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern void lsl_open_stream(IntPtr obj, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_source_id(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern void lsl_close_stream(IntPtr obj);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_get_version(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_time_correction(IntPtr obj, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_get_created_at(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_pull_sample_f(IntPtr obj, float[] buffer, int buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_uid(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_pull_sample_d(IntPtr obj, double[] buffer, int buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_session_id(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_pull_sample_i(IntPtr obj, int[] buffer, int buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_hostname(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_pull_sample_s(IntPtr obj, short[] buffer, int buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_desc(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_pull_sample_c(IntPtr obj, char[] buffer, int buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_xml(IntPtr info);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_pull_sample_str(IntPtr obj, IntPtr[] buffer, int buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_create_outlet(IntPtr info, int chunkSize, int maxBuffered);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern double lsl_pull_sample_buf(IntPtr obj, char[][] buffer, uint[] buffer_lengths, int buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern void lsl_destroy_outlet(IntPtr obj);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern void lsl_destroy_string(IntPtr str);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_sample_ftp(IntPtr obj, float[] data, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern uint lsl_pull_chunk_f(IntPtr obj, float[,] data_buffer, double[] timestamp_buffer, uint data_buffer_elements, uint timestamp_buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_sample_dtp(IntPtr obj, double[] data, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern uint lsl_pull_chunk_d(IntPtr obj, double[,] data_buffer, double[] timestamp_buffer, uint data_buffer_elements, uint timestamp_buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_sample_itp(IntPtr obj, int[] data, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern uint lsl_pull_chunk_i(IntPtr obj, int[,] data_buffer, double[] timestamp_buffer, uint data_buffer_elements, uint timestamp_buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_sample_stp(IntPtr obj, short[] data, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern uint lsl_pull_chunk_s(IntPtr obj, short[,] data_buffer, double[] timestamp_buffer, uint data_buffer_elements, uint timestamp_buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_sample_ctp(IntPtr obj, char[] data, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern uint lsl_pull_chunk_c(IntPtr obj, char[,] data_buffer, double[] timestamp_buffer, uint data_buffer_elements, uint timestamp_buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_sample_strtp(IntPtr obj, string[] data, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern uint lsl_pull_chunk_str(IntPtr obj, IntPtr[,] data_buffer, double[] timestamp_buffer, uint data_buffer_elements, uint timestamp_buffer_elements, double timeout, ref int ec);
+	//[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	//public static extern int lsl_push_sample_buftp(IntPtr obj, char[][] data, uint[] lengths, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern uint lsl_pull_chunk_buf(IntPtr obj, char[][,] data_buffer, uint[,] lengths_buffer, double[] timestamp_buffer, uint data_buffer_elements, uint timestamp_buffer_elements, double timeout, ref int ec);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_ftp(IntPtr obj, float[,] data, uint dataElements, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern uint lsl_samples_available(IntPtr obj);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_ftnp(IntPtr obj, float[,] data, uint dataElements, double[] timestamps, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern uint lsl_was_clock_reset(IntPtr obj);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_dtp(IntPtr obj, double[,] data, uint dataElements, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]        
-        public static extern IntPtr lsl_first_child(IntPtr e);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_dtnp(IntPtr obj, double[,] data, uint dataElements, double[] timestamps, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_last_child(IntPtr e);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_itp(IntPtr obj, int[,] data, uint dataElements, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_next_sibling(IntPtr e);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_itnp(IntPtr obj, int[,] data, uint dataElements, double[] timestamps, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_previous_sibling(IntPtr e);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_stp(IntPtr obj, short[,] data, uint dataElements, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_parent(IntPtr e);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_stnp(IntPtr obj, short[,] data, uint dataElements, double[] timestamps, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_child(IntPtr e, string name);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_ctp(IntPtr obj, char[,] data, uint dataElements, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_next_sibling_n(IntPtr e, string name);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_ctnp(IntPtr obj, char[,] data, uint dataElements, double[] timestamps, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_previous_sibling_n(IntPtr e, string name);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_strtp(IntPtr obj, string[,] data, uint dataElements, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_empty(IntPtr e);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_push_chunk_strtnp(IntPtr obj, string[,] data, uint dataElements, double[] timestamps, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int  lsl_is_text(IntPtr e);
+	//[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	//public static extern int lsl_push_chunk_buftp(IntPtr obj, char[][] data, uint[] lengths, uint dataElements, double timestamp, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_name(IntPtr e);
+	//[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	//public static extern int lsl_push_chunk_buftnp(IntPtr obj, char[][] data, uint[] lengths, uint dataElements, double[] timestamps, int pushthrough);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_value(IntPtr e);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_have_consumers(IntPtr obj);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_child_value(IntPtr e);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_wait_for_consumers(IntPtr obj, double timeout);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_child_value_n(IntPtr e, string name);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_info(IntPtr obj);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_append_child_value(IntPtr e, string name, string value);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_resolve_all(IntPtr[] buffer, uint bufferElements, double waitTime);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_prepend_child_value(IntPtr e, string name, string value);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_resolve_byprop(IntPtr[] buffer, uint bufferElements, string prop, string value, int minimum, double waitTime);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_set_child_value(IntPtr e, string name, string value);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_resolve_bypred(IntPtr[] buffer, uint bufferElements, string pred, int minimum, double waitTime);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_set_name(IntPtr e, string rhs);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_create_inlet(IntPtr info, int maxBuflen, int maxChunklen, int recover);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_set_value(IntPtr e, string rhs);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern void lsl_destroy_inlet(IntPtr obj);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_append_child(IntPtr e, string name);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_get_fullinfo(IntPtr obj, double timeout, ref int ec);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_prepend_child(IntPtr e, string name);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern void lsl_open_stream(IntPtr obj, double timeout, ref int ec);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_append_copy(IntPtr e, IntPtr e2);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern void lsl_set_postprocessing(IntPtr obj, ProcessingOptions processingFlags);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_prepend_copy(IntPtr e, IntPtr e2);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern void lsl_close_stream(IntPtr obj);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern void lsl_remove_child_n(IntPtr e, string name);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_time_correction(IntPtr obj, double timeout, ref int ec);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern void lsl_remove_child(IntPtr e, IntPtr e2);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_pull_sample_f(IntPtr obj, float[] buffer, int bufferElements, double timeout, ref int ec);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_create_continuous_resolver(double forget_after);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_pull_sample_d(IntPtr obj, double[] buffer, int bufferElements, double timeout, ref int ec);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_create_continuous_resolver_byprop(string prop, string value, double forget_after);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_pull_sample_i(IntPtr obj, int[] buffer, int bufferElements, double timeout, ref int ec);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern IntPtr lsl_create_continuous_resolver_bypred(string pred, double forget_after);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_pull_sample_s(IntPtr obj, short[] buffer, int bufferElements, double timeout, ref int ec);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern int lsl_resolver_results(IntPtr obj, IntPtr[] buffer, uint buffer_elements);
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_pull_sample_c(IntPtr obj, char[] buffer, int bufferElements, double timeout, ref int ec);
 
-        [DllImport(libname, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
-        public static extern void lsl_destroy_continuous_resolver(IntPtr obj);
-    }
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern double lsl_pull_sample_str(IntPtr obj, IntPtr[] buffer, int bufferElements, double timeout, ref int ec);
+
+	//[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	//public static extern double lsl_pull_sample_buf(IntPtr obj, char[][] buffer, uint[] bufferLengths, int bufferElements, double timeout, ref int ec);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern void lsl_destroy_string(IntPtr str);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern uint lsl_pull_chunk_f(IntPtr obj, float[,] dataBuffer, double[] timestampBuffer, uint dataBufferElements, uint timestampBufferElements,
+											   double timeout, ref int ec);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern uint lsl_pull_chunk_d(IntPtr obj,                     double[,] dataBuffer, double[] timestampBuffer, uint dataBufferElements,
+											   uint   timestampBufferElements, double    timeout,    ref int  ec);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern uint lsl_pull_chunk_i(IntPtr obj, int[,] dataBuffer, double[] timestampBuffer, uint dataBufferElements, uint timestampBufferElements,
+											   double timeout, ref int ec);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern uint lsl_pull_chunk_s(IntPtr obj, short[,] dataBuffer, double[] timestampBuffer, uint dataBufferElements, uint timestampBufferElements,
+											   double timeout, ref int ec);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern uint lsl_pull_chunk_c(IntPtr obj, char[,] dataBuffer, double[] timestampBuffer, uint dataBufferElements, uint timestampBufferElements,
+											   double timeout, ref int ec);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern uint lsl_pull_chunk_str(IntPtr obj,                     IntPtr[,] dataBuffer, double[] timestampBuffer, uint dataBufferElements,
+												 uint   timestampBufferElements, double    timeout,    ref int  ec);
+
+	//[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	//public static extern uint lsl_pull_chunk_buf(IntPtr obj, char[][,] dataBuffer, uint[,] lengthsBuffer, double[] timestampBuffer, uint dataBufferElements, uint   timestampBufferElements, double timeout, ref int ec);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern uint lsl_samples_available(IntPtr obj);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern uint lsl_was_clock_reset(IntPtr obj);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_first_child(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_last_child(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_next_sibling(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_previous_sibling(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_parent(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_child(IntPtr e, string name);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_next_sibling_n(IntPtr e, string name);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_previous_sibling_n(IntPtr e, string name);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_empty(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_is_text(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_name(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_value(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_child_value(IntPtr e);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_child_value_n(IntPtr e, string name);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_append_child_value(IntPtr e, string name, string value);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_prepend_child_value(IntPtr e, string name, string value);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_set_child_value(IntPtr e, string name, string value);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_set_name(IntPtr e, string rhs);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_set_value(IntPtr e, string rhs);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_append_child(IntPtr e, string name);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_prepend_child(IntPtr e, string name);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_append_copy(IntPtr e, IntPtr e2);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_prepend_copy(IntPtr e, IntPtr e2);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern void lsl_remove_child_n(IntPtr e, string name);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern void lsl_remove_child(IntPtr e, IntPtr e2);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_create_continuous_resolver(double forgetAfter);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_create_continuous_resolver_byprop(string prop, string value, double forgetAfter);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern IntPtr lsl_create_continuous_resolver_bypred(string pred, double forgetAfter);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern int lsl_resolver_results(IntPtr obj, IntPtr[] buffer, uint bufferElements);
+
+	[DllImport(LIBNAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true)]
+	public static extern void lsl_destroy_continuous_resolver(IntPtr obj);
 }
+
+#endregion
 }

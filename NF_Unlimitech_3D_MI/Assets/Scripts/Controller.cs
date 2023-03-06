@@ -44,7 +44,7 @@ namespace Assets.LSL4Unity.Scripts.Examples
 
             //Retrieves the signals from the LSL file
             string[] basisPathSplit = basisPath.Split('\\');
-            int indexOrigineFolder = Array.IndexOf(basisPathSplit, "DémosNFsport");
+            int indexOrigineFolder = Array.IndexOf(basisPathSplit, "DemosNFsport");
             string[] originPath = new string[indexOrigineFolder + 1];
             Array.Copy(basisPathSplit, originPath, indexOrigineFolder + 1);
 
@@ -139,6 +139,9 @@ namespace Assets.LSL4Unity.Scripts.Examples
             //Segment the LSLstream
             if (newSample.Length != 0)
             {
+
+                Debug.Log(newSample.Length.ToString());
+
                 //Retrieve last sample
                 lastSample = (double)newSample[0];
 

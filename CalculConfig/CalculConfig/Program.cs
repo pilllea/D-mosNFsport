@@ -37,7 +37,7 @@ namespace CalculConfig
 
             //Retrieves the signals from the LSL file
             string[] basisPathSplit = basisPath.Split('\\');
-            int indexOrigineFolder = Array.IndexOf(basisPathSplit, "DémosNFsport");
+            int indexOrigineFolder = Array.IndexOf(basisPathSplit, "DemosNFsport");
             string[] originPath = new string[indexOrigineFolder + 1];
             Array.Copy(basisPathSplit, originPath, indexOrigineFolder + 1);
 

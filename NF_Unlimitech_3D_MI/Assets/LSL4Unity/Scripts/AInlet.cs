@@ -96,6 +96,8 @@ namespace Assets.LSL4Unity.Scripts.AbstractInlets
 
             expectedChannels = inlet.info().channel_count();
 
+            Debug.Log(string.Format("Channel count: {0}", expectedChannels.ToString()));
+
             yield return null;
         }
 
@@ -106,7 +108,7 @@ namespace Assets.LSL4Unity.Scripts.AbstractInlets
             try
             {
                 double lastTimeStamp = inlet.pull_sample(sample, 0.0f);
-
+                
                 if (lastTimeStamp != 0.0)
                 {
                     // do not miss the first one found
@@ -116,7 +118,6 @@ namespace Assets.LSL4Unity.Scripts.AbstractInlets
                     {
                         Process(sample, lastTimeStamp);
                     }
-
                 }
             }
             catch (ArgumentException aex)

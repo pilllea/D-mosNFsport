@@ -1,7 +1,7 @@
 <OpenViBE-Scenario>
 	<FormatVersion>2</FormatVersion>
 	<Creator>OpenViBE Designer</Creator>
-	<CreatorVersion>3.4.0</CreatorVersion>
+	<CreatorVersion>3.1.0</CreatorVersion>
 	<Settings></Settings>
 	<Inputs></Inputs>
 	<Outputs></Outputs>
@@ -505,83 +505,6 @@
 			</Attributes>
 		</Box>
 		<Box>
-			<Identifier>(0x0000349c, 0x00006f6f)</Identifier>
-			<Name>Temporal Filter</Name>
-			<AlgorithmClassIdentifier>(0xb4f9d042, 0x9d79f2e5)</AlgorithmClassIdentifier>
-			<Inputs>
-				<Input>
-					<TypeIdentifier>(0x5ba36127, 0x195feae1)</TypeIdentifier>
-					<Name>Input signal</Name>
-				</Input>
-			</Inputs>
-			<Outputs>
-				<Output>
-					<TypeIdentifier>(0x5ba36127, 0x195feae1)</TypeIdentifier>
-					<Name>Output signal</Name>
-				</Output>
-			</Outputs>
-			<Settings>
-				<Setting>
-					<TypeIdentifier>(0xfa20178e, 0x4cba62e9)</TypeIdentifier>
-					<Name>Filter Type</Name>
-					<DefaultValue>Band Pass</DefaultValue>
-					<Value>Band Pass</Value>
-					<Modifiability>false</Modifiability>
-				</Setting>
-				<Setting>
-					<TypeIdentifier>(0x007deef9, 0x2f3e95c6)</TypeIdentifier>
-					<Name>Filter Order</Name>
-					<DefaultValue>4</DefaultValue>
-					<Value>4</Value>
-					<Modifiability>false</Modifiability>
-				</Setting>
-				<Setting>
-					<TypeIdentifier>(0x512a166f, 0x5c3ef83f)</TypeIdentifier>
-					<Name>Low Cut-off Frequency (Hz)</Name>
-					<DefaultValue>1</DefaultValue>
-					<Value>8</Value>
-					<Modifiability>false</Modifiability>
-				</Setting>
-				<Setting>
-					<TypeIdentifier>(0x512a166f, 0x5c3ef83f)</TypeIdentifier>
-					<Name>High Cut-off Frequency (Hz)</Name>
-					<DefaultValue>40</DefaultValue>
-					<Value>16</Value>
-					<Modifiability>false</Modifiability>
-				</Setting>
-			</Settings>
-			<Attributes>
-				<Attribute>
-					<Identifier>(0x17ee7c08, 0x94c14893)</Identifier>
-					<Value></Value>
-				</Attribute>
-				<Attribute>
-					<Identifier>(0x1fa7a38f, 0x54edbe0b)</Identifier>
-					<Value>16</Value>
-				</Attribute>
-				<Attribute>
-					<Identifier>(0x207c9054, 0x3c841b63)</Identifier>
-					<Value>544</Value>
-				</Attribute>
-				<Attribute>
-					<Identifier>(0x4e7b798a, 0x183beafb)</Identifier>
-					<Value>(0x6a7c1e9b, 0x6b00b5c5)</Value>
-				</Attribute>
-				<Attribute>
-					<Identifier>(0xc80ce8af, 0xf699f813)</Identifier>
-					<Value>1</Value>
-				</Attribute>
-				<Attribute>
-					<Identifier>(0xce18836a, 0x9c0eb403)</Identifier>
-					<Value>4</Value>
-				</Attribute>
-				<Attribute>
-					<Identifier>(0xcfad85b0, 0x7c6d841c)</Identifier>
-					<Value>1</Value>
-				</Attribute>
-			</Attributes>
-		</Box>
-		<Box>
 			<Identifier>(0x000038c8, 0x00006033)</Identifier>
 			<Name>3D Topography - Equidistant</Name>
 			<AlgorithmClassIdentifier>(0xc709ea84, 0xb577d910)</AlgorithmClassIdentifier>
@@ -645,6 +568,93 @@
 				<Attribute>
 					<Identifier>(0xce18836a, 0x9c0eb403)</Identifier>
 					<Value>4</Value>
+				</Attribute>
+				<Attribute>
+					<Identifier>(0xcfad85b0, 0x7c6d841c)</Identifier>
+					<Value>1</Value>
+				</Attribute>
+			</Attributes>
+		</Box>
+		<Box>
+			<Identifier>(0x0000408f, 0x00001cb5)</Identifier>
+			<Name>Temporal Filter</Name>
+			<AlgorithmClassIdentifier>(0xb4f9d042, 0x9d79f2e5)</AlgorithmClassIdentifier>
+			<Inputs>
+				<Input>
+					<TypeIdentifier>(0x5ba36127, 0x195feae1)</TypeIdentifier>
+					<Name>Input signal</Name>
+				</Input>
+			</Inputs>
+			<Outputs>
+				<Output>
+					<TypeIdentifier>(0x5ba36127, 0x195feae1)</TypeIdentifier>
+					<Name>Output signal</Name>
+				</Output>
+			</Outputs>
+			<Settings>
+				<Setting>
+					<TypeIdentifier>(0x2f2c606c, 0x8512ed68)</TypeIdentifier>
+					<Name>Filter Method</Name>
+					<DefaultValue>Butterworth</DefaultValue>
+					<Value>Butterworth</Value>
+					<Modifiability>false</Modifiability>
+				</Setting>
+				<Setting>
+					<TypeIdentifier>(0xfa20178e, 0x4cba62e9)</TypeIdentifier>
+					<Name>Filter Type</Name>
+					<DefaultValue>Band Pass</DefaultValue>
+					<Value>Band Pass</Value>
+					<Modifiability>false</Modifiability>
+				</Setting>
+				<Setting>
+					<TypeIdentifier>(0x007deef9, 0x2f3e95c6)</TypeIdentifier>
+					<Name>Filter Order</Name>
+					<DefaultValue>4</DefaultValue>
+					<Value>4</Value>
+					<Modifiability>false</Modifiability>
+				</Setting>
+				<Setting>
+					<TypeIdentifier>(0x512a166f, 0x5c3ef83f)</TypeIdentifier>
+					<Name>Low Cut-off Frequency (Hz)</Name>
+					<DefaultValue>1</DefaultValue>
+					<Value>8</Value>
+					<Modifiability>false</Modifiability>
+				</Setting>
+				<Setting>
+					<TypeIdentifier>(0x512a166f, 0x5c3ef83f)</TypeIdentifier>
+					<Name>High Cut-off Frequency (Hz)</Name>
+					<DefaultValue>40</DefaultValue>
+					<Value>16</Value>
+					<Modifiability>false</Modifiability>
+				</Setting>
+				<Setting>
+					<TypeIdentifier>(0x512a166f, 0x5c3ef83f)</TypeIdentifier>
+					<Name>Band Pass Ripple (dB)</Name>
+					<DefaultValue>0.5</DefaultValue>
+					<Value>0.5</Value>
+					<Modifiability>false</Modifiability>
+				</Setting>
+			</Settings>
+			<Attributes>
+				<Attribute>
+					<Identifier>(0x1fa7a38f, 0x54edbe0b)</Identifier>
+					<Value>16</Value>
+				</Attribute>
+				<Attribute>
+					<Identifier>(0x207c9054, 0x3c841b63)</Identifier>
+					<Value>528</Value>
+				</Attribute>
+				<Attribute>
+					<Identifier>(0x4e7b798a, 0x183beafb)</Identifier>
+					<Value>(0x27a4ceec, 0x876d6384)</Value>
+				</Attribute>
+				<Attribute>
+					<Identifier>(0xc80ce8af, 0xf699f813)</Identifier>
+					<Value>1</Value>
+				</Attribute>
+				<Attribute>
+					<Identifier>(0xce18836a, 0x9c0eb403)</Identifier>
+					<Value>6</Value>
 				</Attribute>
 				<Attribute>
 					<Identifier>(0xcfad85b0, 0x7c6d841c)</Identifier>
@@ -861,7 +871,7 @@
 					<TypeIdentifier>(0x007deef9, 0x2f3e95c6)</TypeIdentifier>
 					<Name>Acquisition server port</Name>
 					<DefaultValue>1024</DefaultValue>
-					<Value>1027</Value>
+					<Value>1024</Value>
 					<Modifiability>false</Modifiability>
 				</Setting>
 			</Settings>
@@ -1070,10 +1080,6 @@
 					<Value>400</Value>
 				</Attribute>
 				<Attribute>
-					<Identifier>(0x341d3912, 0x1478de86)</Identifier>
-					<Value>1</Value>
-				</Attribute>
-				<Attribute>
 					<Identifier>(0x4e7b798a, 0x183beafb)</Identifier>
 					<Value>(0x92c056a7, 0x2dc71aff)</Value>
 				</Attribute>
@@ -1118,7 +1124,7 @@
 					<TypeIdentifier>(0x330306dd, 0x74a95f98)</TypeIdentifier>
 					<Name>Filename</Name>
 					<DefaultValue></DefaultValue>
-					<Value>C:/Users/leapi/OneDrive/Bureau/Sport Unlimitech 2021/ScenariiOpenViBE/signals/EEGOsports64_Baseline2minYO_-[2021.09.08-14.52.37].ov</Value>
+					<Value>C:/Users/lpillett/Desktop/DémosNFsport/ScenariiOpenViBE/signals/.ov signals/EEGOsports64_MouvementsMainDroite5s_-[2021.09.08-14.56.40].ov</Value>
 					<Modifiability>false</Modifiability>
 				</Setting>
 			</Settings>
@@ -1178,20 +1184,31 @@
 			</Target>
 		</Link>
 		<Link>
-			<Identifier>(0x00001734, 0x00001175)</Identifier>
+			<Identifier>(0x00001a84, 0x00006cde)</Identifier>
 			<Source>
-				<BoxIdentifier>(0x0000465a, 0x00004dbf)</BoxIdentifier>
-				<BoxOutputIndex>1</BoxOutputIndex>
+				<BoxIdentifier>(0x000043f5, 0x00006e7b)</BoxIdentifier>
+				<BoxOutputIndex>0</BoxOutputIndex>
 			</Source>
 			<Target>
-				<BoxIdentifier>(0x0000349c, 0x00006f6f)</BoxIdentifier>
+				<BoxIdentifier>(0x000033d1, 0x00007255)</BoxIdentifier>
 				<BoxInputIndex>0</BoxInputIndex>
 			</Target>
 		</Link>
 		<Link>
-			<Identifier>(0x00001a6a, 0x00005bb1)</Identifier>
+			<Identifier>(0x00001bb8, 0x00004fb5)</Identifier>
 			<Source>
-				<BoxIdentifier>(0x0000349c, 0x00006f6f)</BoxIdentifier>
+				<BoxIdentifier>(0x0000408f, 0x00001cb5)</BoxIdentifier>
+				<BoxOutputIndex>0</BoxOutputIndex>
+			</Source>
+			<Target>
+				<BoxIdentifier>(0x00001099, 0x00005b45)</BoxIdentifier>
+				<BoxInputIndex>0</BoxInputIndex>
+			</Target>
+		</Link>
+		<Link>
+			<Identifier>(0x0000269a, 0x00002250)</Identifier>
+			<Source>
+				<BoxIdentifier>(0x0000408f, 0x00001cb5)</BoxIdentifier>
 				<BoxOutputIndex>0</BoxOutputIndex>
 			</Source>
 			<Target>
@@ -1200,13 +1217,13 @@
 			</Target>
 		</Link>
 		<Link>
-			<Identifier>(0x00001a84, 0x00006cde)</Identifier>
+			<Identifier>(0x000033c4, 0x00006b3c)</Identifier>
 			<Source>
-				<BoxIdentifier>(0x000043f5, 0x00006e7b)</BoxIdentifier>
-				<BoxOutputIndex>0</BoxOutputIndex>
+				<BoxIdentifier>(0x0000465a, 0x00004dbf)</BoxIdentifier>
+				<BoxOutputIndex>1</BoxOutputIndex>
 			</Source>
 			<Target>
-				<BoxIdentifier>(0x000033d1, 0x00007255)</BoxIdentifier>
+				<BoxIdentifier>(0x0000408f, 0x00001cb5)</BoxIdentifier>
 				<BoxInputIndex>0</BoxInputIndex>
 			</Target>
 		</Link>
@@ -1244,17 +1261,6 @@
 			</Target>
 		</Link>
 		<Link>
-			<Identifier>(0x000044d2, 0x00005351)</Identifier>
-			<Source>
-				<BoxIdentifier>(0x0000349c, 0x00006f6f)</BoxIdentifier>
-				<BoxOutputIndex>0</BoxOutputIndex>
-			</Source>
-			<Target>
-				<BoxIdentifier>(0x00001099, 0x00005b44)</BoxIdentifier>
-				<BoxInputIndex>0</BoxInputIndex>
-			</Target>
-		</Link>
-		<Link>
 			<Identifier>(0x00004795, 0x0000420d)</Identifier>
 			<Source>
 				<BoxIdentifier>(0x00001099, 0x00005b45)</BoxIdentifier>
@@ -1262,6 +1268,17 @@
 			</Source>
 			<Target>
 				<BoxIdentifier>(0x00002d57, 0x00007fa1)</BoxIdentifier>
+				<BoxInputIndex>0</BoxInputIndex>
+			</Target>
+		</Link>
+		<Link>
+			<Identifier>(0x00005217, 0x00000f69)</Identifier>
+			<Source>
+				<BoxIdentifier>(0x0000408f, 0x00001cb5)</BoxIdentifier>
+				<BoxOutputIndex>0</BoxOutputIndex>
+			</Source>
+			<Target>
+				<BoxIdentifier>(0x00001099, 0x00005b44)</BoxIdentifier>
 				<BoxInputIndex>0</BoxInputIndex>
 			</Target>
 		</Link>
@@ -1288,17 +1305,6 @@
 			</Target>
 		</Link>
 		<Link>
-			<Identifier>(0x00005a6e, 0x00005f2b)</Identifier>
-			<Source>
-				<BoxIdentifier>(0x0000349c, 0x00006f6f)</BoxIdentifier>
-				<BoxOutputIndex>0</BoxOutputIndex>
-			</Source>
-			<Target>
-				<BoxIdentifier>(0x00001099, 0x00005b45)</BoxIdentifier>
-				<BoxInputIndex>0</BoxInputIndex>
-			</Target>
-		</Link>
-		<Link>
 			<Identifier>(0x00006977, 0x00000ad3)</Identifier>
 			<Source>
 				<BoxIdentifier>(0x00002d57, 0x00007fa1)</BoxIdentifier>
@@ -1315,7 +1321,7 @@
 		<Entry>
 			<Identifier>(0x000017c8, 0x00002b3d)</Identifier>
 			<Type>(0x3bcce5d2, 0x43f2d968)</Type>
-			<Data>[{"boxIdentifier":"(0xffffffff, 0xffffffff)","childCount":1,"height":1,"identifier":"(0x00007c63, 0x00004268)","name":"Default window","parentIdentifier":"(0xffffffff, 0xffffffff)","type":1,"width":1},{"boxIdentifier":"(0xffffffff, 0xffffffff)","childCount":1,"identifier":"(0x00007892, 0x000049da)","index":0,"name":"Default tab","parentIdentifier":"(0x00007c63, 0x00004268)","type":2},{"boxIdentifier":"(0xffffffff, 0xffffffff)","childCount":2,"dividerPosition":376,"identifier":"(0x000077b8, 0x000072ec)","index":0,"maxDividerPosition":756,"name":"Vertical split","parentIdentifier":"(0x00007892, 0x000049da)","type":4},{"boxIdentifier":"(0x000038c8, 0x00006033)","childCount":0,"identifier":"(0x000042ce, 0x0000359d)","index":0,"parentIdentifier":"(0x000077b8, 0x000072ec)","type":3},{"boxIdentifier":"(0x00005c3e, 0x00007498)","childCount":0,"identifier":"(0x000058c4, 0x00004270)","index":1,"parentIdentifier":"(0x000077b8, 0x000072ec)","type":3}]</Data>
+			<Data>[{"boxIdentifier":"(0xffffffff, 0xffffffff)","childCount":1,"height":320,"identifier":"(0x00007c63, 0x00004268)","name":"Default window","parentIdentifier":"(0xffffffff, 0xffffffff)","type":1,"width":475},{"boxIdentifier":"(0xffffffff, 0xffffffff)","childCount":1,"identifier":"(0x00007892, 0x000049da)","index":0,"name":"Default tab","parentIdentifier":"(0x00007c63, 0x00004268)","type":2},{"boxIdentifier":"(0xffffffff, 0xffffffff)","childCount":2,"dividerPosition":135,"identifier":"(0x000077b8, 0x000072ec)","index":0,"maxDividerPosition":275,"name":"Vertical split","parentIdentifier":"(0x00007892, 0x000049da)","type":4},{"boxIdentifier":"(0x000038c8, 0x00006033)","childCount":0,"identifier":"(0x000042ce, 0x0000359d)","index":0,"parentIdentifier":"(0x000077b8, 0x000072ec)","type":3},{"boxIdentifier":"(0x00005c3e, 0x00007498)","childCount":0,"identifier":"(0x000058c4, 0x00004270)","index":1,"parentIdentifier":"(0x000077b8, 0x000072ec)","type":3}]</Data>
 		</Entry>
 	</Metadata>
 </OpenViBE-Scenario>

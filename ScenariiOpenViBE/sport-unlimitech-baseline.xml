@@ -1,7 +1,7 @@
 <OpenViBE-Scenario>
 	<FormatVersion>2</FormatVersion>
 	<Creator>OpenViBE Designer</Creator>
-	<CreatorVersion>3.4.0</CreatorVersion>
+	<CreatorVersion>3.1.0</CreatorVersion>
 	<Settings>
 		<Setting>
 			<Identifier>(0x0022f63b, 0x4bd5f2b5)</Identifier>
@@ -152,6 +152,10 @@
 				<Attribute>
 					<Identifier>(0x207c9054, 0x3c841b63)</Identifier>
 					<Value>720</Value>
+				</Attribute>
+				<Attribute>
+					<Identifier>(0x341d3912, 0x1478de86)</Identifier>
+					<Value>1</Value>
 				</Attribute>
 				<Attribute>
 					<Identifier>(0x4e7b798a, 0x183beafb)</Identifier>
@@ -334,7 +338,7 @@
 			</Attributes>
 		</Box>
 		<Box>
-			<Identifier>(0x000011f1, 0x00006f67)</Identifier>
+			<Identifier>(0x00002cbb, 0x0000456e)</Identifier>
 			<Name>CSV File Writer</Name>
 			<AlgorithmClassIdentifier>(0x428375e8, 0x325f2db9)</AlgorithmClassIdentifier>
 			<Inputs>
@@ -388,7 +392,7 @@
 				</Attribute>
 				<Attribute>
 					<Identifier>(0x4e7b798a, 0x183beafb)</Identifier>
-					<Value>(0xc33e47e0, 0x70e5f31b)</Value>
+					<Value>(0xee4b6d30, 0x788aed29)</Value>
 				</Attribute>
 				<Attribute>
 					<Identifier>(0x527ad68d, 0x16d746a0)</Identifier>
@@ -536,7 +540,7 @@
 			</Attributes>
 		</Box>
 		<Box>
-			<Identifier>(0x0000349c, 0x00006f6f)</Identifier>
+			<Identifier>(0x0000408f, 0x00001cb5)</Identifier>
 			<Name>Temporal Filter</Name>
 			<AlgorithmClassIdentifier>(0xb4f9d042, 0x9d79f2e5)</AlgorithmClassIdentifier>
 			<Inputs>
@@ -552,6 +556,13 @@
 				</Output>
 			</Outputs>
 			<Settings>
+				<Setting>
+					<TypeIdentifier>(0x2f2c606c, 0x8512ed68)</TypeIdentifier>
+					<Name>Filter Method</Name>
+					<DefaultValue>Butterworth</DefaultValue>
+					<Value>Butterworth</Value>
+					<Modifiability>false</Modifiability>
+				</Setting>
 				<Setting>
 					<TypeIdentifier>(0xfa20178e, 0x4cba62e9)</TypeIdentifier>
 					<Name>Filter Type</Name>
@@ -580,12 +591,15 @@
 					<Value>16</Value>
 					<Modifiability>false</Modifiability>
 				</Setting>
+				<Setting>
+					<TypeIdentifier>(0x512a166f, 0x5c3ef83f)</TypeIdentifier>
+					<Name>Band Pass Ripple (dB)</Name>
+					<DefaultValue>0.5</DefaultValue>
+					<Value>0.5</Value>
+					<Modifiability>false</Modifiability>
+				</Setting>
 			</Settings>
 			<Attributes>
-				<Attribute>
-					<Identifier>(0x17ee7c08, 0x94c14893)</Identifier>
-					<Value></Value>
-				</Attribute>
 				<Attribute>
 					<Identifier>(0x1fa7a38f, 0x54edbe0b)</Identifier>
 					<Value>-304</Value>
@@ -596,7 +610,7 @@
 				</Attribute>
 				<Attribute>
 					<Identifier>(0x4e7b798a, 0x183beafb)</Identifier>
-					<Value>(0x6a7c1e9b, 0x6b00b5c5)</Value>
+					<Value>(0x27a4ceec, 0x876d6384)</Value>
 				</Attribute>
 				<Attribute>
 					<Identifier>(0xc80ce8af, 0xf699f813)</Identifier>
@@ -604,7 +618,7 @@
 				</Attribute>
 				<Attribute>
 					<Identifier>(0xce18836a, 0x9c0eb403)</Identifier>
-					<Value>4</Value>
+					<Value>6</Value>
 				</Attribute>
 				<Attribute>
 					<Identifier>(0xcfad85b0, 0x7c6d841c)</Identifier>
@@ -709,7 +723,7 @@
 					<TypeIdentifier>(0x007deef9, 0x2f3e95c6)</TypeIdentifier>
 					<Name>Acquisition server port</Name>
 					<DefaultValue>1024</DefaultValue>
-					<Value>1027</Value>
+					<Value>1024</Value>
 					<Modifiability>false</Modifiability>
 				</Setting>
 			</Settings>
@@ -1004,17 +1018,6 @@
 	</Boxes>
 	<Links>
 		<Link>
-			<Identifier>(0x000008fc, 0x00004930)</Identifier>
-			<Source>
-				<BoxIdentifier>(0x0000465a, 0x00004dbf)</BoxIdentifier>
-				<BoxOutputIndex>1</BoxOutputIndex>
-			</Source>
-			<Target>
-				<BoxIdentifier>(0x0000349c, 0x00006f6f)</BoxIdentifier>
-				<BoxInputIndex>0</BoxInputIndex>
-			</Target>
-		</Link>
-		<Link>
 			<Identifier>(0x00000930, 0x0000322c)</Identifier>
 			<Source>
 				<BoxIdentifier>(0x00007a62, 0x00007a92)</BoxIdentifier>
@@ -1022,28 +1025,6 @@
 			</Source>
 			<Target>
 				<BoxIdentifier>(0x00000dc7, 0x0000385f)</BoxIdentifier>
-				<BoxInputIndex>0</BoxInputIndex>
-			</Target>
-		</Link>
-		<Link>
-			<Identifier>(0x00001040, 0x0000460a)</Identifier>
-			<Source>
-				<BoxIdentifier>(0x00007a62, 0x00007a92)</BoxIdentifier>
-				<BoxOutputIndex>0</BoxOutputIndex>
-			</Source>
-			<Target>
-				<BoxIdentifier>(0x000011f1, 0x00006f67)</BoxIdentifier>
-				<BoxInputIndex>1</BoxInputIndex>
-			</Target>
-		</Link>
-		<Link>
-			<Identifier>(0x00001ffa, 0x00002735)</Identifier>
-			<Source>
-				<BoxIdentifier>(0x0000349c, 0x00006f6f)</BoxIdentifier>
-				<BoxOutputIndex>0</BoxOutputIndex>
-			</Source>
-			<Target>
-				<BoxIdentifier>(0x00001099, 0x00005b44)</BoxIdentifier>
 				<BoxInputIndex>0</BoxInputIndex>
 			</Target>
 		</Link>
@@ -1103,13 +1084,13 @@
 			</Target>
 		</Link>
 		<Link>
-			<Identifier>(0x00004d0a, 0x00000938)</Identifier>
+			<Identifier>(0x000071f0, 0x00002842)</Identifier>
 			<Source>
-				<BoxIdentifier>(0x000033d1, 0x00007254)</BoxIdentifier>
+				<BoxIdentifier>(0x0000408f, 0x00001cb5)</BoxIdentifier>
 				<BoxOutputIndex>0</BoxOutputIndex>
 			</Source>
 			<Target>
-				<BoxIdentifier>(0x000011f1, 0x00006f67)</BoxIdentifier>
+				<BoxIdentifier>(0x00001099, 0x00005b44)</BoxIdentifier>
 				<BoxInputIndex>0</BoxInputIndex>
 			</Target>
 		</Link>
@@ -1121,6 +1102,39 @@
 			</Source>
 			<Target>
 				<BoxIdentifier>(0x00002d57, 0x00007fa0)</BoxIdentifier>
+				<BoxInputIndex>0</BoxInputIndex>
+			</Target>
+		</Link>
+		<Link>
+			<Identifier>(0x00007629, 0x000033e1)</Identifier>
+			<Source>
+				<BoxIdentifier>(0x0000465a, 0x00004dbf)</BoxIdentifier>
+				<BoxOutputIndex>1</BoxOutputIndex>
+			</Source>
+			<Target>
+				<BoxIdentifier>(0x0000408f, 0x00001cb5)</BoxIdentifier>
+				<BoxInputIndex>0</BoxInputIndex>
+			</Target>
+		</Link>
+		<Link>
+			<Identifier>(0x000076b7, 0x00000e63)</Identifier>
+			<Source>
+				<BoxIdentifier>(0x00007a62, 0x00007a92)</BoxIdentifier>
+				<BoxOutputIndex>0</BoxOutputIndex>
+			</Source>
+			<Target>
+				<BoxIdentifier>(0x00002cbb, 0x0000456e)</BoxIdentifier>
+				<BoxInputIndex>1</BoxInputIndex>
+			</Target>
+		</Link>
+		<Link>
+			<Identifier>(0x00007799, 0x00006fe2)</Identifier>
+			<Source>
+				<BoxIdentifier>(0x000033d1, 0x00007254)</BoxIdentifier>
+				<BoxOutputIndex>0</BoxOutputIndex>
+			</Source>
+			<Target>
+				<BoxIdentifier>(0x00002cbb, 0x0000456e)</BoxIdentifier>
 				<BoxInputIndex>0</BoxInputIndex>
 			</Target>
 		</Link>
