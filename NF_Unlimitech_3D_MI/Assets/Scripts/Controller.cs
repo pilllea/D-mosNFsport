@@ -73,33 +73,36 @@ namespace Assets.LSL4Unity.Scripts.Examples
             //Used to have the scripts running even when the focus is not on the Unity window
             Application.runInBackground = true;
 
-            if (arrowObject.transform.position.z >= 4.6)
+            if (ungoingTrial)
             {
-                Debug.Log("Trial end");
-
-                //Play sound
-                soundTrialEnd.Play();
-
-                //Make the trial button and the score text appear
-                trialButton.gameObject.SetActive(true);
-                trialButton.enabled = true;
-                scoreText.enabled = true;
-
-                //Computes the scores and make it appear
-                if (currentNbStimBelowMean > 0)
+                if (arrowObject.transform.position.z >= 4.6)
                 {
-                    finalScore = currentNbStimBelowMean / currentNbStim * 100;
-                    scoreText.text = "Score : " + Math.Round(finalScore,2).ToString();
-                }
-                else
-                {
-                    scoreText.text = "Score : 0";
-                }
+                    Debug.Log("Trial end");
 
-                //Re-init arrow and variables for next trial
-                ungoingTrial = false;
-                arrowObject.transform.position = new Vector3(0, 0, 0);
-                ArrowController.speed = 0;
+                    //Play sound
+                    soundTrialEnd.Play();
+
+                    //Make the trial button and the score text appear
+                    trialButton.gameObject.SetActive(true);
+                    trialButton.enabled = true;
+                    scoreText.enabled = true;
+
+                    //Computes the scores and make it appear
+                    if (currentNbStimBelowMean > 0)
+                    {
+                        finalScore = currentNbStimBelowMean / currentNbStim * 100;
+                        scoreText.text = "Score : " + Math.Round(finalScore, 2).ToString();
+                    }
+                    else
+                    {
+                        scoreText.text = "Score : 0";
+                    }
+
+                    //Re-init arrow and variables for next trial
+                    ungoingTrial = false;
+                    arrowObject.transform.position = new Vector3(0, 0, 0);
+                    ArrowController.speed = 0;
+                }
             }
         }
 
@@ -140,10 +143,11 @@ namespace Assets.LSL4Unity.Scripts.Examples
             if (newSample.Length != 0)
             {
 
-                Debug.Log(newSample.Length.ToString());
+                //Debug.Log(newSample.Length.ToString());
 
                 //Retrieve last sample
                 lastSample = (double)newSample[0];
+                Debug.Log(lastSample.ToString());
 
                 //Updates variables for arrow control
                 currentNbStim += 1;                 
